@@ -1,0 +1,37 @@
+# Bank Audit Demo - EXE Packaging Manual (V19.0)
+
+To achieve the same level of stability as the 'sensitive' project, we recommend packaging this tool into a standalone Windows EXE.
+
+## 1. Prerequisites
+- Install Python 3.10 to 3.12 (Recommended).
+- Ensure 'venv' is activated and all requirements (V19.0 locked versions) are installed.
+- Install PyInstaller: `pip install pyinstaller==6.11.0`
+
+## 2. Packaging Command (Directory Mode)
+Run the following command from the project root:
+
+```powershell
+pyinstaller -D --name BankAuditTool --noconfirm --clean ^
+    --add-data "backend;backend" ^
+    --add-data "offline_models;offline_models" ^
+    --hidden-import "uvicorn.logging" ^
+    --hidden-import "uvicorn.loops" ^
+    --hidden-import "uvicorn.loops.auto" ^
+    --hidden-import "uvicorn.protocols" ^
+    --hidden-import "uvicorn.protocols.http" ^
+    --hidden-import "uvicorn.protocols.http.auto" ^
+    --hidden-import "uvicorn.protocols.websockets" ^
+    --hidden-import "uvicorn.protocols.websockets.auto" ^
+    --hidden-import "uvicorn.lifespan" ^
+    --hidden-import "uvicorn.lifespan.on" ^
+    backend/main.py
+```
+
+## 3. Why Directory Mode (-D)?
+1.  **Fast Startup**: Does not need to unpack 800MB+ every time it launches.
+2.  **Local Maintenance**: You can swap model files directly in 'dist/BankAuditTool/offline_models' without re-building.
+3.  **Lower AV Flagging**: One-file EXEs are frequently flagged as malware by enterprise security software.
+
+## 4. Expected Size
+- **Total Bundle**: ~750 MB (zipped to ~400 MB).
+- **Core Engine**: PaddlePaddle CPU runtime consumes about 60%% of the space.
