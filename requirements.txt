@@ -1,0 +1,9 @@
+fastapi>=0.100.0
+uvicorn>=0.22.0
+pydantic>=2.0.0
+openai>=1.0.0
+python-docx>=0.8.11
+pywin32>=306
+paddleocr>=2.9.0
+paddlepaddle>=2.6.0
+httpx>=0.24.0

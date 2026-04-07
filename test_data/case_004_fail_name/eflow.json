@@ -1,0 +1,31 @@
+{
+  "flow_id": "EF2026040304",
+  "company": {
+    "name": "前海科技有限公司",
+    "name_en": "Qianhai Technology Co., Limited",
+    "cert_type": "USCI",
+    "cert_number": "91440300MA5EXXXX1L"
+  },
+  "account": {
+    "bank_name": "Bank of China",
+    "branch": "Paris Branch",
+    "account_number": "C12345XXXXXXX"
+  },
+  "operator": {
+    "name": "SANTA CLAUS",
+    "id_type": "Passport",
+    "id_number": "N1234567"
+  },
+  "handler": {
+    "name": "SANTA CLAUS",
+    "id_type": "Passport",
+    "id_number": "N1234567"
+  },
+  "activity": "Open Online Banking",
+  "permissions": {
+    "level": "Level_A",
+    "single_limit": 500000,
+    "daily_limit": 1000000
+  },
+  "apply_date": "2026-04-03"
+}

@@ -1,0 +1,32 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE / Editor
+.vscode/
+.idea/
+.project
+.pydevproject
+.settings/
+
+# Local Config (Contains API Keys)
+config.json
+
+# App Data / Temporary
+uploads/
+outputs/
+_converted_docx/
+*.log
+res.txt
+prev_ocr_init.txt
+offline_paths.txt
+*.zip
+*.rar
+
+# OS specific
+.DS_Store
+Thumbs.db

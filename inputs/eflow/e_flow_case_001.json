@@ -1,0 +1,12 @@
+{
+  "flow_id": "EF202604030001",
+  "applicant_name": "ZHANG SAN",
+  "id_type": "Passport",
+  "id_number": "EA1234567",
+  "bank_name": "Bank of China",
+  "account_number": "6217001234567890",
+  "target_action": "Open Online Banking",
+  "permission_level": "Level_A",
+  "daily_limit": 1000000,
+  "apply_date": "2026-04-03"
+}

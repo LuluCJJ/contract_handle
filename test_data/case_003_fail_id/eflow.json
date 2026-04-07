@@ -1,0 +1,31 @@
+{
+  "flow_id": "EF2026040303",
+  "company": {
+    "name": "深圳市前海科技有限公司",
+    "name_en": "Qianhai Technology Co., Limited",
+    "cert_type": "统一社会信用代码",
+    "cert_number": "91440300MA5EXXXX1L"
+  },
+  "account": {
+    "bank_name": "中国建设银行",
+    "branch": "深圳南山支行",
+    "account_number": "4420156430005200"
+  },
+  "operator": {
+    "name": "张光",
+    "id_type": "身份证",
+    "id_number": "1324331974"
+  },
+  "handler": {
+    "name": "张光",
+    "id_type": "身份证",
+    "id_number": "1324331974"
+  },
+  "activity": "开通网上银行",
+  "permissions": {
+    "level": "Level_A",
+    "single_limit": 500000,
+    "daily_limit": 1000000
+  },
+  "apply_date": "2026-04-03"
+}
