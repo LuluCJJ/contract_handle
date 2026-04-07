@@ -1,6 +1,6 @@
 """
-OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V12.0）
-算子全对齐：ResizeImage (Cls) / DetResize (Det) / RecResize (Rec)
+OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V13.0）
+分类器特殊结构适配：transform_ops 由列表转字典
 """
 import os
 import re
@@ -8,7 +8,7 @@ import sys
 import traceback
 from pathlib import Path
 
-# === 离线环境强制参数 (必须在导入前) ===
+# === 离线环境强制参数 ===
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_use_onednn"] = "0"
 os.environ["FLAGS_enable_pir_api"] = "0"
@@ -22,8 +22,8 @@ _ocr_instance = None
 
 def _ensure_inference_yml(model_dir: str, model_type: str):
     """
-    补齐 PaddleX 3.0 的 V12.0 最终对齐补丁。
-    核心理念：不同预测器(Det/Rec/Cls)拥有独立的算子注册表。
+    补齐 PaddleX 3.0 的 V13.0 兼容补丁。
+    重磅修正：分类器的 transform_ops 必须是字典键值对，而非列表。
     """
     if not model_dir or not os.path.isdir(model_dir):
         return
@@ -31,13 +31,14 @@ def _ensure_inference_yml(model_dir: str, model_type: str):
     yml_p = os.path.join(model_dir, "inference.yml")
     deploy_p = os.path.join(model_dir, "deploy.yml")
     
-    print(f"[OCR] 正在由于 V12.0 注册表对齐更新 {model_type} 配置...")
+    print(f"[OCR] 正在执行 V13.0 字典字典嵌套修正 ({model_type})...")
     for p in [yml_p, deploy_p]:
         if os.path.exists(p):
             try: os.remove(p)
             except: pass
 
-    # === V12.0 终极对齐：各自归位 ===
+    # === V13.0 最终对齐：分类器强制为字典，检测/识别保留列表 ===
+    # 理由：ImageClassificationPredictor 遍历 transform_ops 时预期得到的是 Key(Str)
     configs = {
         "det": """Global:
   model_name: "PP-OCRv5_server_det"
@@ -95,15 +96,12 @@ PostProcess:
   transform_type: OCR
 PreProcess:
   transform_ops:
-    - ResizeImage:
-        size: [192, 48]
-    - Normalize:
-        mean: [0.5, 0.5, 0.5]
-        std: [0.5, 0.5, 0.5]
-        order: hwc
-    - ToCHWImage: null
-    - KeepKeys:
-        keep_keys: [image]
+    ResizeImage:
+      size: [192, 48]
+    NormalizeImage:
+      mean: [0.5, 0.5, 0.5]
+      std: [0.5, 0.5, 0.5]
+    ToCHWImage: null
 PostProcess:
   - ClsPostProcess: null
 """
@@ -115,11 +113,9 @@ PostProcess:
             for p in [yml_p, deploy_p]:
                 with open(p, "w", encoding="utf-8") as f:
                     f.write(content)
-            # 在 Cls 的日志中额外标注一下
-            tag = "(ResizeImage)" if model_type == "cls" else f"({model_type}Resize)"
-            print(f"[OCR] V12.0 元数据同步成功 {tag}")
+            print(f"[OCR] V13.0 结构同步成功 ({model_type} -> {'Dict' if model_type=='cls' else 'List'})")
         except Exception as e:
-            print(f"[OCR] V12.0 写入失败: {e}")
+            print(f"[OCR] V13.0 写入失败: {e}")
 
 
 def _find_model_sub_dir(base_dir, type_name) -> str | None:
@@ -145,7 +141,7 @@ def _get_ocr():
         base_d = os.path.dirname(os.path.dirname(os.path.dirname(script_p)))
         if not os.path.exists(os.path.join(base_d, "offline_models")):
             base_d = os.getcwd()
-        off_d = os.path.join(base_d, "offline_models", "whl")
+        off_d = os.path.join(base_d, "whl")
 
         det_p = _find_model_sub_dir(off_d, "det")
         rec_p = _find_model_sub_dir(off_d, "rec")
@@ -155,8 +151,7 @@ def _get_ocr():
         if rec_p: _ensure_inference_yml(rec_p, "rec")
         if cls_p: _ensure_inference_yml(cls_p, "cls")
 
-        # === V12.0 真空参数集 ===
-        # 移除 use_gpu, mkldnn 等所有引起 ValueError 的参数
+        # === V13.0 真空参数 ===
         base_kw = {}
         if det_p: base_kw["text_detection_model_dir"] = det_p
         if rec_p: base_kw["text_recognition_model_dir"] = rec_p
@@ -167,16 +162,16 @@ def _get_ocr():
             base_kw["use_textline_orientation"] = False
 
         try:
-            print(f"[OCR] 正在以 V12.0 的混合 Registry 算子初始化...")
+            print(f"[OCR] 正在以 V13.0 的分类器字典化模式初始化...")
             _ocr_instance = PaddleOCR(**base_kw)
         except Exception as e:
-            print(f"[OCR] V12.0 初始化崩溃。堆栈如下:")
+            print(f"[OCR] V13.0 初始化挂起。详情:")
             traceback.print_exc()
             try:
-                # 最后的终极保命尝试
+                # 最后的保命操作：降级为非分类模式
                 _ocr_instance = PaddleOCR(text_detection_model_dir=det_p, text_recognition_model_dir=rec_p)
             except:
-                print(f"[OCR] 初始化彻底挂起。")
+                print(f"[OCR] 初始化彻底失败。")
 
     return _ocr_instance
 
@@ -186,13 +181,12 @@ def extract_id_info(image_path: str) -> dict:
     try:
         r = ocr.ocr(image_path)
     except Exception as e:
-        print(f"[OCR] 推理核心报错: {e}")
+        print(f"[OCR] 推理崩溃: {e}")
         r = None
 
     if not r or not r[0]:
         return {"name": "", "id_number": "", "id_type": "unknown", "all_text": [], "confidence": 0.0}
 
-    # 数据解析支持多样化
     texts = []
     if isinstance(r[0], list):
         for line in r[0]:
@@ -207,7 +201,7 @@ def extract_id_info(image_path: str) -> dict:
     full_t = " ".join(all_t)
     name, id_n, id_type = "", "", "unknown"
 
-    # 正则 (UTF-8)
+    # 正则规则 (UTF-8)
     if any(k in full_t for k in ["姓名", "性别", "身份号码", "身份证"]):
         id_type = "id_card"
         for i, t in enumerate(all_t):
@@ -228,7 +222,7 @@ def extract_id_info(image_path: str) -> dict:
 if __name__ == "__main__":
     import json
     img = sys.argv[1] if len(sys.argv) > 1 else "test_data/case_001_pass/id_document.jpg"
-    print(f"\n--- PaddleOCR 3.4.0+ V12.0 (全速通版) ---\n测试图片: {img}\n")
+    print(f"\n--- PaddleOCR 3.4.0+ V13.0 (字典嵌套修正版) ---\n测试图片: {img}\n")
     if not os.path.exists(img): print(f"找不到测试图片")
     else:
         try:
