@@ -1,6 +1,6 @@
 """
-OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V9.0）
-算子名称对齐：DetResize, RecResize, ClsResize
+OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V10.0）
+冲刺终点：全方位封锁 MKLDNN (oneDNN) 确保 PIR 模式不崩溃
 """
 import os
 import re
@@ -8,7 +8,10 @@ import sys
 import traceback
 from pathlib import Path
 
-# === 环境强制离线 ===
+# === 环境级强力禁令 (必须在导入 paddle 前设置) ===
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_use_onednn"] = "0"
+os.environ["FLAGS_enable_pir_api"] = "0" # 暂时禁用 PIR 以确保 3.4.0+ 稳定性
 os.environ["PADDLE_PLATFORM_DEVICE"] = "cpu"
 os.environ["PADDLE_PLATFORM_DEVICE_LIST"] = "cpu"
 os.environ["PYTHONHTTPSVERIFY"] = "0"
@@ -19,8 +22,8 @@ _ocr_instance = None
 
 def _ensure_inference_yml(model_dir: str, model_type: str):
     """
-    补齐 PaddleX 3.0 的 V9.0 补丁。
-    核心修正：将算子名对齐为 DetResize, RecResize, ClsResize。
+    补齐 PaddleX 3.0 的 V10.0 绝技。
+    针对 oneDNN Bug，确保 PreProcess 结构字典化。
     """
     if not model_dir or not os.path.isdir(model_dir):
         return
@@ -28,13 +31,13 @@ def _ensure_inference_yml(model_dir: str, model_type: str):
     yml_p = os.path.join(model_dir, "inference.yml")
     deploy_p = os.path.join(model_dir, "deploy.yml")
     
-    print(f"[OCR] 正在执行 V9.0 算子名对齐 ({model_type})...")
+    print(f"[OCR] 正在执行 V10.0 强力兼容补丁 ({model_type})...")
     for p in [yml_p, deploy_p]:
         if os.path.exists(p):
             try: os.remove(p)
             except: pass
 
-    # === V9.0 算子名称全对齐 ===
+    # === V10.0 核心配置 ===
     configs = {
         "det": """Global:
   model_name: "PP-OCRv5_server_det"
@@ -112,9 +115,9 @@ PostProcess:
             for p in [yml_p, deploy_p]:
                 with open(p, "w", encoding="utf-8") as f:
                     f.write(content)
-            print(f"[OCR] V9.0 算子对齐成功: {model_type}")
+            print(f"[OCR] V10.0 元数据同步成功")
         except Exception as e:
-            print(f"[OCR] V9.0 写入失败: {e}")
+            print(f"[OCR] V10.0 写入失败: {e}")
 
 
 def _find_model_sub_dir(base_dir, type_name) -> str | None:
@@ -131,7 +134,10 @@ def _get_ocr():
     if _ocr_instance is None:
         try:
             import paddle
+            # 双重保险：代码级再次禁用
             paddle.device.set_device('cpu')
+            try: paddle.set_flags({'FLAGS_use_mkldnn': 0})
+            except: pass
         except: pass
         from paddleocr import PaddleOCR
 
@@ -140,9 +146,8 @@ def _get_ocr():
         base_d = os.path.dirname(os.path.dirname(os.path.dirname(script_p)))
         if not os.path.exists(os.path.join(base_d, "offline_models")):
             base_d = os.getcwd()
-        off_d = os.path.join(base_d, "whl")
+        off_d = os.path.join(base_d, "offline_models", "whl")
 
-        # 定位与元数据
         det_p = _find_model_sub_dir(off_d, "det")
         rec_p = _find_model_sub_dir(off_d, "rec")
         cls_p = _find_model_sub_dir(off_d, "cls")
@@ -151,9 +156,13 @@ def _get_ocr():
         if rec_p: _ensure_inference_yml(rec_p, "rec")
         if cls_p: _ensure_inference_yml(cls_p, "cls")
 
-        # 构造最简参数集 (V9.0)
-        # 注意：不再传递任何硬件参数，全部由环境变量控制
-        base_kw = {}
+        # === V10.0 决战参数集 ===
+        # 显式关闭所有可能引起 3.3.0/3.4.0 崩溃的特性
+        base_kw = {
+            "enable_mkldnn": False, # 显式设置 False
+            "use_gpu": False
+        }
+        
         if det_p: base_kw["text_detection_model_dir"] = det_p
         if rec_p: base_kw["text_recognition_model_dir"] = rec_p
         if cls_p:
@@ -163,16 +172,16 @@ def _get_ocr():
             base_kw["use_textline_orientation"] = False
 
         try:
-            print(f"[OCR] 正在以 V9.0 的精简算子 (ClsResize/RecResize) 初始化...")
+            print(f"[OCR] 正在以 V10.0 全禁 MKLDNN 模式尝试初始化...")
             _ocr_instance = PaddleOCR(**base_kw)
         except Exception as e:
-            print(f"[OCR] V9.0 初始化挂了。正在记录堆栈:")
+            print(f"[OCR] V10.0 初始化失败。堆栈探测:")
             traceback.print_exc()
             try:
-                # 最后的回退
-                _ocr_instance = PaddleOCR(text_detection_model_dir=det_p, text_recognition_model_dir=rec_p)
+                # 最后的终极保命模式
+                _ocr_instance = PaddleOCR(text_detection_model_dir=det_p, use_gpu=False)
             except:
-                print(f"[OCR] 实质性停摆。")
+                print(f"[OCR] 无法实例化容器。")
 
     return _ocr_instance
 
@@ -180,15 +189,30 @@ def _get_ocr():
 def extract_id_info(image_path: str) -> dict:
     ocr = _get_ocr()
     try:
-        r = ocr.ocr(image_path)
+        # 兼容最新推荐 API: predict
+        # 但 predict 可能返回 Result 对象，依然保留 ocr 回退
+        try:
+            res_obj = ocr.predict(image_path)
+            # 如果返回的是模型结果对象，尝试转为传统列表格式
+            if hasattr(res_obj, 'to_dict'):
+                # 转换 PaddleX 3.0 Result 到通用格式 (模拟 ocr 结果)
+                # 这部分需要根据具体 paddlex output 调整，暂时仅作为占位
+                print(f"[OCR] 使用 predict API 成功，正在解析 Result 对象...")
+                # 为了稳妥，如果 predict 返回了，我们先打印它
+                # r = [res_obj.to_dict()] # 这是一个简化逻辑
+                r = ocr.ocr(image_path) # 兜底用 ocr()
+            else:
+                r = ocr.ocr(image_path)
+        except:
+            r = ocr.ocr(image_path)
     except Exception as e:
-        print(f"[OCR] 推理崩溃: {e}")
+        print(f"[OCR] 推理核心报错: {e}")
         r = None
 
     if not r or not r[0]:
         return {"name": "", "id_number": "", "id_type": "unknown", "all_text": [], "confidence": 0.0}
 
-    # 数据解析支持多样化 (List/Dict)
+    # 数据解析
     texts = []
     if isinstance(r[0], list):
         for line in r[0]:
@@ -203,7 +227,7 @@ def extract_id_info(image_path: str) -> dict:
     full_t = " ".join(all_t)
     name, id_n, id_type = "", "", "unknown"
 
-    # 正则提取规则 (UTF-8)
+    # 正则 (UTF-8)
     if any(k in full_t for k in ["姓名", "性别", "身份号码", "身份证"]):
         id_type = "id_card"
         for i, t in enumerate(all_t):
@@ -239,8 +263,8 @@ def extract_id_info(image_path: str) -> dict:
 if __name__ == "__main__":
     import json
     img = sys.argv[1] if len(sys.argv) > 1 else "test_data/case_001_pass/id_document.jpg"
-    print(f"\n--- PaddleOCR 3.4.0+ V9.0 (核心算子对齐) ---\n测试图片: {img}\n")
-    if not os.path.exists(img): print(f"找不到测试图")
+    print(f"\n--- PaddleOCR 3.4.0+ V10.0 (禁 MKLDNN 旗舰补丁) ---\n测试图片: {img}\n")
+    if not os.path.exists(img): print(f"找不到图片")
     else:
         try:
             res = extract_id_info(img)
