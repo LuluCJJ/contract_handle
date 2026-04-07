@@ -1,6 +1,6 @@
 """
-OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V2.0）
-修正了 PaddleX 3.0 下的 model_name mismatch 官方名称匹配
+OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V3.0）
+特别针对 PaddleX 3.0 的 'Mobile' 官方模型名称匹配修复
 """
 import os
 import re
@@ -16,33 +16,32 @@ _ocr_instance = None
 
 
 def _ensure_inference_yml(model_dir: str, model_type: str):
-    """如果目录下缺少 inference.yml 或 model_name 不匹配，则补全官方标准配置"""
+    """补全官方标准配置，针对 PP-OCRv4 适配 mobile 关键字"""
     if not model_dir or not os.path.isdir(model_dir):
         return
     
     yml_path = os.path.join(model_dir, "inference.yml")
     
-    # 如果文件已存在，检查 model_name 是否包含正确的前缀 (ch_)
     if os.path.exists(yml_path):
         try:
             with open(yml_path, "r", encoding="utf-8") as f:
                 c = f.read()
-                # 如果是 PP-OCRv4 且没有 ch_ 前缀，则需要重写
-                if 'model_name: "ch_PP-OCRv4' in c or 'model_name: "ch_ppocr' in c:
+                # 如果是 PP-OCRv4 且已经包含 mobile 关键字，则认为已修复
+                if '_mobile_' in c or 'mobile_v2' in c:
                     return
                 else:
-                    print(f"[OCR] 旧配置 model_name 不带 ch_ 前缀，准备重写: {yml_path}")
+                    print(f"[OCR] 旧配置不包含 mobile 关键字，准备重写: {yml_path}")
         except Exception:
             pass
 
-    print(f"[OCR] 正在生成/校正官方标准的 {model_type} 离线配置: {yml_path}")
+    print(f"[OCR] 正在生成官方移动版 (mobile) {model_type} 离线配置: {yml_path}")
     
-    # 官方标准的 PP-OCRv4 离线模型配置，必须使用 ch_ 前缀
+    # 适配 PaddleX 3.0 官方 Zoo 的 Mobile 核心命名
     configs = {
         "det": """Global:
   model_type: det
   algorithm: DB
-  model_name: "ch_PP-OCRv4_det"
+  model_name: "ch_PP-OCRv4_mobile_det"
   transform_type: OCR
 PreProcess:
   - DetResizeForTest:
@@ -65,7 +64,7 @@ PostProcess:
         "rec": """Global:
   model_type: rec
   algorithm: SVTR_LCNet
-  model_name: "ch_PP-OCRv4_rec"
+  model_name: "ch_PP-OCRv4_mobile_rec"
   transform_type: OCR
   use_space_char: true
 PreProcess:
@@ -106,7 +105,7 @@ PostProcess:
         try:
             with open(yml_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            print(f"[OCR] 官方配置写入成功: {yml_path}")
+            print(f"[OCR] Mobile 官方配置写入成功: {yml_path}")
         except Exception as e:
             print(f"[OCR] 写入官方配置文件失败: {e}")
 
@@ -129,7 +128,7 @@ def _find_model_sub_dir(base_dir, type_name) -> str | None:
     for root, dirs, files in os.walk(search_path):
         if "inference.pdmodel" in files:
             abs_path = os.path.abspath(root)
-            print(f"[OCR] 已定位离线 {type_name} 模块: {abs_path}")
+            print(f"[OCR] 定位到 {type_name}: {abs_path}")
             return abs_path
     return None
 
@@ -154,7 +153,7 @@ def _get_ocr():
         rec_path = _find_model_sub_dir(offline_dir, "rec")
         cls_path = _find_model_sub_dir(offline_dir, "cls")
 
-        # 补全/更新带有 ch_ 前缀的 model_name
+        # 补全/更新带有 mobile_ 前缀的 model_name
         if det_path: _ensure_inference_yml(det_path, "det")
         if rec_path: _ensure_inference_yml(rec_path, "rec")
         if cls_path: _ensure_inference_yml(cls_path, "cls")
@@ -170,15 +169,15 @@ def _get_ocr():
         if cls_path: kwargs["cls_model_dir"] = cls_path
 
         try:
-            print(f"[OCR] 正在以官方标准名称 (ch_ 前缀) 初始化...")
+            print(f"[OCR] 正在以官方 Mobile 标准 (ch_PP-OCRv4_mobile_det) 初始化...")
             _ocr_instance = PaddleOCR(**kwargs)
         except Exception as e:
-            print(f"[OCR] 初始化再次失败: {e}。最后尝试极简模式...")
+            print(f"[OCR] 初始化再次失败: {e}。正在执行极简回退...")
             try:
                 minimal = {"lang": "ch", "det_model_dir": det_path, "rec_model_dir": rec_path}
                 _ocr_instance = PaddleOCR(**minimal)
             except Exception as e2:
-                print(f"[OCR] 实例化由于底层库限制彻底失败: {e2}")
+                print(f"[OCR] 库底层限制，实例化彻底失败: {e2}")
                 _ocr_instance = PaddleOCR()
 
     return _ocr_instance
@@ -189,7 +188,7 @@ def extract_id_info(image_path: str) -> dict:
     try:
         result = ocr.ocr(image_path)
     except Exception as e:
-        print(f"[OCR] 引擎运行时错误: {e}")
+        print(f"[OCR] 运行错误: {e}")
         result = None
 
     if not result or not result[0]:
@@ -301,7 +300,7 @@ def _generic_extract(texts, full) -> dict:
 if __name__ == "__main__":
     import json
     test_img = sys.argv[1] if len(sys.argv) > 1 else "test_data/case_001_pass/id_document.jpg"
-    print(f"\n--- PaddleOCR 3.4.0 名称修正调试 (UTF-8) ---\n测试图片: {test_img}\n")
+    print(f"\n--- PaddleOCR 3.4.0 移动版名称修正调试 ---\n测试图片: {test_img}\n")
     if not os.path.exists(test_img):
          print(f"找不到测试图片: {test_img}")
     else:
@@ -310,6 +309,6 @@ if __name__ == "__main__":
             print("[解析成功]:")
             print(json.dumps(res, indent=4, ensure_ascii=False))
         except Exception as e:
-            print(f"致命错误: {e}")
+            print(f"严重错误: {e}")
             import traceback
             traceback.print_exc()
