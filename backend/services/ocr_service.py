@@ -1,6 +1,6 @@
 """
-OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V13.0）
-分类器特殊结构适配：transform_ops 由列表转字典
+OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V14.0）
+绝命补丁：!!float 强转元数据类型 + 智能分级降级策略
 """
 import os
 import re
@@ -8,10 +8,12 @@ import sys
 import traceback
 from pathlib import Path
 
-# === 离线环境强制参数 ===
+# === 环境禁令：必须在任何导入前从 shell 层面注入 (V14.0) ===
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_use_onednn"] = "0"
 os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["PADDLE_INF_PIR_API"] = "0"
+os.environ["PADDLE_ONEDNN_ENABLED"] = "0"
 os.environ["PADDLE_PLATFORM_DEVICE"] = "cpu"
 os.environ["PADDLE_PLATFORM_DEVICE_LIST"] = "cpu"
 os.environ["PYTHONHTTPSVERIFY"] = "0"
@@ -22,8 +24,9 @@ _ocr_instance = None
 
 def _ensure_inference_yml(model_dir: str, model_type: str):
     """
-    补齐 PaddleX 3.0 的 V13.0 兼容补丁。
-    重磅修正：分类器的 transform_ops 必须是字典键值对，而非列表。
+    补齐 PaddleX 3.0 的 V14.0 绝技。
+    针对 (Unimplemented) ConvertPirAttribute2RuntimeAttribute 报错：
+    使用 !!float 显式强转 mean/std，防止 PIR 引擎将其误判为 DoubleAttribute。
     """
     if not model_dir or not os.path.isdir(model_dir):
         return
@@ -31,14 +34,14 @@ def _ensure_inference_yml(model_dir: str, model_type: str):
     yml_p = os.path.join(model_dir, "inference.yml")
     deploy_p = os.path.join(model_dir, "deploy.yml")
     
-    print(f"[OCR] 正在执行 V13.0 字典字典嵌套修正 ({model_type})...")
+    print(f"[OCR] 正在执行 V14.0 类型强转适配 ({model_type})...")
     for p in [yml_p, deploy_p]:
         if os.path.exists(p):
             try: os.remove(p)
             except: pass
 
-    # === V13.0 最终对齐：分类器强制为字典，检测/识别保留列表 ===
-    # 理由：ImageClassificationPredictor 遍历 transform_ops 时预期得到的是 Key(Str)
+    # === V14.0 绝秘模板：使用 !!float 封锁 DoubleAttribute 转换错误 ===
+    # 注意：Det/Rec 依然使用列表，Cls 使用字典。统一增加 !!float 显式声明。
     configs = {
         "det": """Global:
   model_name: "PP-OCRv5_server_det"
@@ -53,17 +56,17 @@ PreProcess:
         limit_side_len: 960
         limit_type: max
     - Normalize:
-        mean: [0.485, 0.456, 0.406]
-        std: [0.229, 0.224, 0.225]
+        mean: [!!float 0.485, !!float 0.456, !!float 0.406]
+        std: [!!float 0.229, !!float 0.224, !!float 0.225]
         order: hwc
     - ToCHWImage: null
     - KeepKeys:
         keep_keys: [image, shape]
 PostProcess:
-  thresh: 0.3
-  box_thresh: 0.6
+  thresh: !!float 0.3
+  box_thresh: !!float 0.6
   max_candidates: 1000
-  unclip_ratio: 1.5
+  unclip_ratio: !!float 1.5
 """,
         "rec": """Global:
   model_name: "PP-OCRv5_server_rec"
@@ -78,8 +81,8 @@ PreProcess:
     - RecResize:
         target_size: [3, 48, 320]
     - Normalize:
-        mean: [0.5, 0.5, 0.5]
-        std: [0.5, 0.5, 0.5]
+        mean: [!!float 0.5, !!float 0.5, !!float 0.5]
+        std: [!!float 0.5, !!float 0.5, !!float 0.5]
         order: hwc
     - ToCHWImage: null
     - KeepKeys:
@@ -99,8 +102,8 @@ PreProcess:
     ResizeImage:
       size: [192, 48]
     NormalizeImage:
-      mean: [0.5, 0.5, 0.5]
-      std: [0.5, 0.5, 0.5]
+      mean: [!!float 0.5, !!float 0.5, !!float 0.5]
+      std: [!!float 0.5, !!float 0.5, !!float 0.5]
     ToCHWImage: null
 PostProcess:
   - ClsPostProcess: null
@@ -113,9 +116,9 @@ PostProcess:
             for p in [yml_p, deploy_p]:
                 with open(p, "w", encoding="utf-8") as f:
                     f.write(content)
-            print(f"[OCR] V13.0 结构同步成功 ({model_type} -> {'Dict' if model_type=='cls' else 'List'})")
+            print(f"[OCR] V14.0 元数据同步成功 (!!float 模式)")
         except Exception as e:
-            print(f"[OCR] V13.0 写入失败: {e}")
+            print(f"[OCR] V14.0 写入失败: {e}")
 
 
 def _find_model_sub_dir(base_dir, type_name) -> str | None:
@@ -133,6 +136,8 @@ def _get_ocr():
         try:
             import paddle
             paddle.device.set_device('cpu')
+            # 再次确认关闭
+            paddle.set_flags({"FLAGS_use_mkldnn": 0, "FLAGS_enable_pir_api": 0})
         except: pass
         from paddleocr import PaddleOCR
 
@@ -151,27 +156,33 @@ def _get_ocr():
         if rec_p: _ensure_inference_yml(rec_p, "rec")
         if cls_p: _ensure_inference_yml(cls_p, "cls")
 
-        # === V13.0 真空参数 ===
-        base_kw = {}
-        if det_p: base_kw["text_detection_model_dir"] = det_p
-        if rec_p: base_kw["text_recognition_model_dir"] = rec_p
-        if cls_p:
-            base_kw["textline_orientation_model_dir"] = cls_p
-            base_kw["use_textline_orientation"] = True
-        else:
-            base_kw["use_textline_orientation"] = False
-
+        # === V14.0 保命级分级初始化 ===
         try:
-            print(f"[OCR] 正在以 V13.0 的分类器字典化模式初始化...")
+            # 尝试全功能初始化 (Det + Rec + Cls)
+            base_kw = {}
+            if det_p: base_kw["text_detection_model_dir"] = det_p
+            if rec_p: base_kw["text_recognition_model_dir"] = rec_p
+            if cls_p:
+                base_kw["textline_orientation_model_dir"] = cls_p
+                base_kw["use_textline_orientation"] = True
+            
+            print(f"[OCR] 正在由于 V14.0 全功能初始化模式...")
             _ocr_instance = PaddleOCR(**base_kw)
         except Exception as e:
-            print(f"[OCR] V13.0 初始化挂起。详情:")
-            traceback.print_exc()
+            print(f"[OCR] 全功能初始化失败，推测分类器 (Cls) 仍存在 PIR 兼容性问题。")
+            print(f"[OCR] 正在执行等级降级：禁用方向检测，仅保留检测与识别...")
             try:
-                # 最后的保命操作：降级为非分类模式
-                _ocr_instance = PaddleOCR(text_detection_model_dir=det_p, text_recognition_model_dir=rec_p)
-            except:
-                print(f"[OCR] 初始化彻底失败。")
+                # 降级：彻底砍掉 cls，防止它触发 NormalizeImage 报错
+                fallback_kw = {}
+                if det_p: fallback_kw["text_detection_model_dir"] = det_p
+                if rec_p: fallback_kw["text_recognition_model_dir"] = rec_p
+                fallback_kw["use_textline_orientation"] = False
+                
+                _ocr_instance = PaddleOCR(**fallback_kw)
+                print(f"[OCR] 降级初始化成功。')")
+            except Exception as e2:
+                print(f"[OCR] 降级亦失败。详情:")
+                traceback.print_exc()
 
     return _ocr_instance
 
@@ -181,12 +192,13 @@ def extract_id_info(image_path: str) -> dict:
     try:
         r = ocr.ocr(image_path)
     except Exception as e:
-        print(f"[OCR] 推理崩溃: {e}")
+        print(f"[OCR] 推理引擎底层异常: {e}")
         r = None
 
     if not r or not r[0]:
         return {"name": "", "id_number": "", "id_type": "unknown", "all_text": [], "confidence": 0.0}
 
+    # 数据解析
     texts = []
     if isinstance(r[0], list):
         for line in r[0]:
@@ -201,7 +213,7 @@ def extract_id_info(image_path: str) -> dict:
     full_t = " ".join(all_t)
     name, id_n, id_type = "", "", "unknown"
 
-    # 正则规则 (UTF-8)
+    # 正则 (UTF-8)
     if any(k in full_t for k in ["姓名", "性别", "身份号码", "身份证"]):
         id_type = "id_card"
         for i, t in enumerate(all_t):
@@ -222,7 +234,7 @@ def extract_id_info(image_path: str) -> dict:
 if __name__ == "__main__":
     import json
     img = sys.argv[1] if len(sys.argv) > 1 else "test_data/case_001_pass/id_document.jpg"
-    print(f"\n--- PaddleOCR 3.4.0+ V13.0 (字典嵌套修正版) ---\n测试图片: {img}\n")
+    print(f"\n--- PaddleOCR 3.4.0+ V14.0 (!!float 强转避雷版) ---\n测试图片: {img}\n")
     if not os.path.exists(img): print(f"找不到测试图片")
     else:
         try:
