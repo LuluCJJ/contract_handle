@@ -1,6 +1,6 @@
 """
-OCR 服务 — PaddleOCR 证件信息提取（离线增强模式）
-特别适配 PaddleOCR 3.4.0 (PaddleX) 的 'model_name' 必需字段
+OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V2.0）
+修正了 PaddleX 3.0 下的 model_name mismatch 官方名称匹配
 """
 import os
 import re
@@ -16,32 +16,33 @@ _ocr_instance = None
 
 
 def _ensure_inference_yml(model_dir: str, model_type: str):
-    """如果目录下缺少 inference.yml 或配置不完整，则补全标准的配置逻辑"""
+    """如果目录下缺少 inference.yml 或 model_name 不匹配，则补全官方标准配置"""
     if not model_dir or not os.path.isdir(model_dir):
         return
     
     yml_path = os.path.join(model_dir, "inference.yml")
     
-    # 如果文件已存在，检查是否包含 'model_name' (关键校验)
+    # 如果文件已存在，检查 model_name 是否包含正确的前缀 (ch_)
     if os.path.exists(yml_path):
         try:
             with open(yml_path, "r", encoding="utf-8") as f:
                 c = f.read()
-                if "model_name" in c:
+                # 如果是 PP-OCRv4 且没有 ch_ 前缀，则需要重写
+                if 'model_name: "ch_PP-OCRv4' in c or 'model_name: "ch_ppocr' in c:
                     return
                 else:
-                    print(f"[OCR] 旧配置缺失 model_name，准备覆盖: {yml_path}")
+                    print(f"[OCR] 旧配置 model_name 不带 ch_ 前缀，准备重写: {yml_path}")
         except Exception:
             pass
 
-    print(f"[OCR] 正在由于 PaddleOCR 3.4.0 兼容性需求生成/更新 {model_type} 配置: {yml_path}")
+    print(f"[OCR] 正在生成/校正官方标准的 {model_type} 离线配置: {yml_path}")
     
-    # 定义标准 PP-OCRv4 离线配置模版，补充了必需的 model_name
+    # 官方标准的 PP-OCRv4 离线模型配置，必须使用 ch_ 前缀
     configs = {
         "det": """Global:
   model_type: det
   algorithm: DB
-  model_name: "PP-OCRv4_det"
+  model_name: "ch_PP-OCRv4_det"
   transform_type: OCR
 PreProcess:
   - DetResizeForTest:
@@ -64,7 +65,7 @@ PostProcess:
         "rec": """Global:
   model_type: rec
   algorithm: SVTR_LCNet
-  model_name: "PP-OCRv4_rec"
+  model_name: "ch_PP-OCRv4_rec"
   transform_type: OCR
   use_space_char: true
 PreProcess:
@@ -105,13 +106,12 @@ PostProcess:
         try:
             with open(yml_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            print(f"[OCR] 配置补完成功: {yml_path}")
+            print(f"[OCR] 官方配置写入成功: {yml_path}")
         except Exception as e:
-            print(f"[OCR] 写入配置文件失败: {e}")
+            print(f"[OCR] 写入官方配置文件失败: {e}")
 
 
 def _find_model_dir_from_config() -> str | None:
-    """尝试从项目配置中读取自定义模型路径"""
     try:
         from backend.config import get_config
         cfg = get_config()
@@ -123,21 +123,18 @@ def _find_model_dir_from_config() -> str | None:
 
 
 def _find_model_sub_dir(base_dir, type_name) -> str | None:
-    """在指定的根目录下深度搜索包含 inference.pdmodel 的文件夹"""
     search_path = os.path.join(base_dir, type_name)
     if not os.path.exists(search_path):
         return None
-    
     for root, dirs, files in os.walk(search_path):
         if "inference.pdmodel" in files:
             abs_path = os.path.abspath(root)
-            print(f"[OCR] 已锁定 {type_name} 离线模型: {abs_path}")
+            print(f"[OCR] 已定位离线 {type_name} 模块: {abs_path}")
             return abs_path
     return None
 
 
 def _get_ocr():
-    """初始化并返回 PaddleOCR 实例"""
     global _ocr_instance
     if _ocr_instance is None:
         try:
@@ -145,70 +142,60 @@ def _get_ocr():
             paddle.device.set_device('cpu')
         except Exception:
             pass
-
         from paddleocr import PaddleOCR
 
-        # 计算搜索基准目录
         script_path = os.path.abspath(__file__)
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(script_path)))
         if not os.path.exists(os.path.join(base_dir, "offline_models")):
             base_dir = os.getcwd()
-            
         offline_dir = os.path.join(base_dir, "offline_models", "whl")
 
-        # 1. 寻找路径
         det_path = _find_model_sub_dir(offline_dir, "det")
         rec_path = _find_model_sub_dir(offline_dir, "rec")
         cls_path = _find_model_sub_dir(offline_dir, "cls")
 
-        # 2. 补齐/更新缺失的带有 model_name 字段的 inference.yml
+        # 补全/更新带有 ch_ 前缀的 model_name
         if det_path: _ensure_inference_yml(det_path, "det")
         if rec_path: _ensure_inference_yml(rec_path, "rec")
         if cls_path: _ensure_inference_yml(cls_path, "cls")
 
-        # 3. 构造参数 - 针对高版本仅保留基础路径和核心逻辑开关
+        # 特别注意：对 3.4.0 版本，尽量只传必需的参数
         kwargs = {
             "lang": "ch",
             "enable_mkldnn": False,
             "use_angle_cls": True if cls_path else False
         }
-        
         if det_path: kwargs["det_model_dir"] = det_path
         if rec_path: kwargs["rec_model_dir"] = rec_path
         if cls_path: kwargs["cls_model_dir"] = cls_path
 
         try:
-            print(f"[OCR] 正在以 3.4.0 (PaddleX) 兼容模式初始化...")
+            print(f"[OCR] 正在以官方标准名称 (ch_ 前缀) 初始化...")
             _ocr_instance = PaddleOCR(**kwargs)
         except Exception as e:
-            print(f"[OCR] 初始化再次失败: {e}。正在尝试极简初始化模式...")
-            # 最后的保命方案：完全不传任何额外参数，只传基础路径
+            print(f"[OCR] 初始化再次失败: {e}。最后尝试极简模式...")
             try:
-                minimal_kwargs = {"lang": "ch"}
-                if det_path: minimal_kwargs["det_model_dir"] = det_path
-                if rec_path: minimal_kwargs["rec_model_dir"] = rec_path
-                _ocr_instance = PaddleOCR(**minimal_kwargs)
+                minimal = {"lang": "ch", "det_model_dir": det_path, "rec_model_dir": rec_path}
+                _ocr_instance = PaddleOCR(**minimal)
             except Exception as e2:
-                print(f"[OCR] 实例化彻底失败: {e2}")
-                _ocr_instance = PaddleOCR() # 最后的回退
+                print(f"[OCR] 实例化由于底层库限制彻底失败: {e2}")
+                _ocr_instance = PaddleOCR()
 
     return _ocr_instance
 
 
 def extract_id_info(image_path: str) -> dict:
-    """从证件图片中提取姓名和证件号"""
     ocr = _get_ocr()
     try:
         result = ocr.ocr(image_path)
     except Exception as e:
-        print(f"[OCR] 运行遭遇底层异常: {e}")
+        print(f"[OCR] 引擎运行时错误: {e}")
         result = None
 
     if not result or not result[0]:
         return {"name": "", "id_number": "", "id_type": "unknown", "all_text": [], "confidence": 0.0}
 
     texts = []
-    # 兼容 List[Line] 和 Dict 结构
     if isinstance(result[0], list):
         for line in result[0]:
             try:
@@ -224,10 +211,7 @@ def extract_id_info(image_path: str) -> dict:
 
     all_text = [t["text"] for t in texts]
     full_text = " ".join(all_text)
-
-    name = ""
-    id_number = ""
-    id_type = "unknown"
+    name, id_number, id_type = "", "", "unknown"
 
     if _is_cn_id_card(all_text, full_text):
         id_type = "id_card"
@@ -256,8 +240,7 @@ def extract_id_info(image_path: str) -> dict:
         "confidence": round(avg_conf, 3),
     }
 
-
-# ========== 逻辑辅助函数 ==========
+# ========== 逻辑辅助函数 (UTF-8) ==========
 
 def _is_cn_id_card(texts, full) -> bool:
     return any(k in full for k in ["姓名", "性别", "民族", "公民身份号码", "身份证"])
@@ -312,21 +295,21 @@ def _generic_extract(texts, full) -> dict:
         m = re.search(r'[A-Za-z]?\d{6,18}[A-Za-zXx]?', t)
         if m and not id_num: id_num = m.group()
         if not name and 2 <= len(t) <= 4 and re.match(r'^[\u4e00-\u9fff]+$', t): name = t
-    return {"name": name, "id_number": id_num}
+    return {"name": name.strip(), "id_number": id_num.strip()}
 
 
 if __name__ == "__main__":
     import json
     test_img = sys.argv[1] if len(sys.argv) > 1 else "test_data/case_001_pass/id_document.jpg"
-    print(f"\n--- PaddleOCR 3.4.0 兼容补丁 2.0 ---\n测试图片: {test_img}\n")
+    print(f"\n--- PaddleOCR 3.4.0 名称修正调试 (UTF-8) ---\n测试图片: {test_img}\n")
     if not os.path.exists(test_img):
          print(f"找不到测试图片: {test_img}")
     else:
         try:
             res = extract_id_info(test_img)
-            print("[结果报告]:")
+            print("[解析成功]:")
             print(json.dumps(res, indent=4, ensure_ascii=False))
         except Exception as e:
-            print(f"执行失败: {e}")
+            print(f"致命错误: {e}")
             import traceback
             traceback.print_exc()
