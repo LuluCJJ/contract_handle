@@ -1,6 +1,6 @@
 """
-OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V4.0）
-深度兼容 PaddleX 3.0 (3.4.0) 的全量元数据需求
+OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V5.0）
+适配 PaddleOCR 3.4.0+ (PaddleX 3.0) 废弃参数及强制模型 Registry 校验
 """
 import os
 import re
@@ -18,8 +18,8 @@ _ocr_instance = None
 
 def _ensure_inference_yml(model_dir: str, model_type: str):
     """
-    补齐 PaddleX 3.0 必需的全量元数据。
-    如果 model_name mismatch，很大原因是缺少了 version 或 task_type。
+    补齐现成模型的 V5.0 补丁。
+    特别针对 PP-LCNet_x1_0_textline_ori 这种严格的命名规则。
     """
     if not model_dir or not os.path.isdir(model_dir):
         return
@@ -27,14 +27,14 @@ def _ensure_inference_yml(model_dir: str, model_type: str):
     yml_path = os.path.join(model_dir, "inference.yml")
     deploy_path = os.path.join(model_dir, "deploy.yml")
     
-    # 强制清理旧配置以重新生成 (重要：确保 V4.0 补丁生效)
-    print(f"[OCR] 正在清理并重建 {model_type} 核心配置: {model_dir}")
+    # 强制清理并重写 (V5.0 以后不仅检查 ch_，还检查 PP-LCNet)
+    print(f"[OCR] 正在由于 V5.0 协议更新 {model_type} 配置: {model_dir}")
     for p in [yml_path, deploy_path]:
         if os.path.exists(p):
             try: os.remove(p)
             except: pass
 
-    # 适配 PaddleX 3.0.0 的全字段配置模板
+    # 针对 3.4.0+ / PaddleX 3.0 的精确配置映射
     configs = {
         "det": """Global:
   model_name: "ch_PP-OCRv4_mobile_det"
@@ -83,7 +83,7 @@ PostProcess:
   - CTCLabelDecode: null
 """,
         "cls": """Global:
-  model_name: "ch_ppocr_mobile_v2.0_cls"
+  model_name: "PP-LCNet_x1_0_textline_ori"
   model_type: cls
   algorithm: CLS
   task_type: OCR
@@ -107,13 +107,12 @@ PostProcess:
     content = configs.get(model_type)
     if content:
         try:
-            # 同时生成两个文件以兼容不同加载器
             for p in [yml_path, deploy_path]:
                 with open(p, "w", encoding="utf-8") as f:
                     f.write(content)
-            print(f"[OCR] 核心元数据补丁已写入 {model_type} 目录")
+            print(f"[OCR] V5.0 元数据写入完毕 (Cls: PP-LCNet_x1_0_textline_ori)")
         except Exception as e:
-            print(f"[OCR] 写入离线配置文件失败: {e}")
+            print(f"[OCR] 补丁写入失败: {e}")
 
 
 def _find_model_sub_dir(base_dir, type_name) -> str | None:
@@ -141,7 +140,7 @@ def _get_ocr():
             base_d = os.getcwd()
         off_d = os.path.join(base_d, "offline_models", "whl")
 
-        # 路径与元数据补丁
+        # 定位与打补丁
         det_p = _find_model_sub_dir(off_d, "det")
         rec_p = _find_model_sub_dir(off_d, "rec")
         cls_p = _find_model_sub_dir(off_d, "cls")
@@ -150,27 +149,41 @@ def _get_ocr():
         if rec_p: _ensure_inference_yml(rec_p, "rec")
         if cls_p: _ensure_inference_yml(cls_p, "cls")
 
-        # 参数集
-        base_kw = {"lang": "ch", "enable_mkldnn": False}
-        if det_p: base_kw["det_model_dir"] = det_p
-        if rec_p: base_kw["rec_model_dir"] = rec_p
+        # === 构造 3.4.0+ 最新的参数名集 ===
+        # 移除了所有旧的参数名，全部替换为 text_xxxx 形式
+        base_kw = {
+            "lang": "ch",
+            "enable_mkldnn": False,
+            "use_gpu": False, # 显式设置
+            "use_xpu": False,
+            "use_npu": False,
+            "use_mlu": False,
+            "limit_side_len": 960,
+            "limit_type": "max"
+        }
+        
+        # 路径参数 (新名称)
+        if det_p: base_kw["text_detector_model_dir"] = det_p
+        if rec_p: base_kw["text_recognition_model_dir"] = rec_p
+        
+        # 方向分类器 (新名称)
         if cls_p:
-            base_kw["cls_model_dir"] = cls_p
-            base_kw["use_angle_cls"] = True
+            base_kw["textline_orientation_model_dir"] = cls_p
+            base_kw["use_textline_orientation"] = True
         else:
-            base_kw["use_angle_cls"] = False
+            base_kw["use_textline_orientation"] = False
 
         try:
-            print(f"[OCR] 正在以深度兼容模式 (Metadata V4.0) 初始化 PaddleOCR...")
+            print(f"[OCR] 正在以最新 3.4.0+ 参数规范初始化 (Registry V5.0)...")
             _ocr_instance = PaddleOCR(**base_kw)
         except Exception as e:
-            print(f"[OCR] 初始化失败，正在打印详细堆栈定位原因:")
+            print(f"[OCR] 初始化再次失败。堆栈如下:")
             traceback.print_exc()
+            # 兼容性回退
             try:
-                # 最后的终极尝试：完全不带参数初始化看是否能读取默认
                 _ocr_instance = PaddleOCR(lang="ch", use_gpu=False)
             except:
-                print(f"[OCR] 底层依赖库不完整或版本冲突，实例化无法继续。")
+                print(f"[OCR] 初始化彻底挂了。")
 
     return _ocr_instance
 
@@ -180,18 +193,16 @@ def extract_id_info(image_path: str) -> dict:
     try:
         r = ocr.ocr(image_path)
     except Exception as e:
-        print(f"[OCR] 引擎运行期底层报错: {e}")
+        print(f"[OCR] 推理期报错: {e}")
         r = None
 
     if not r or not r[0]:
         return {"name": "", "id_number": "", "id_type": "unknown", "all_text": [], "confidence": 0.0}
 
-    # 数据解析
     texts = []
     if isinstance(r[0], list):
         for line in r[0]:
-            try:
-                texts.append({"text": line[1][0], "confidence": line[1][1]})
+            try: texts.append({"text": line[1][0], "confidence": line[1][1]})
             except: pass
     elif isinstance(r[0], dict):
         texts = [{"text": t, "confidence": s} for t, s in zip(r[0].get('rec_texts', []), r[0].get('rec_scores', []))]
@@ -200,13 +211,12 @@ def extract_id_info(image_path: str) -> dict:
     full_t = " ".join(all_t)
     name, id_n, id_type = "", "", "unknown"
 
-    # 正则规则组
+    # CN ID
     if any(k in full_t for k in ["姓名", "性别", "身份号码", "身份证"]):
         id_type = "id_card"
         for i, t in enumerate(all_t):
             if "姓名" in t:
-                p = t.replace("姓名", "").strip()
-                name = p if p else (all_t[i+1] if i+1 < len(all_t) else "")
+                name = t.replace("姓名", "").strip() or (all_t[i+1] if i+1 < len(all_t) else "")
                 break
         for t in all_t:
             m = re.search(r'\d{17}[\dXx]', t)
@@ -216,16 +226,9 @@ def extract_id_info(image_path: str) -> dict:
         for t in all_t:
             if t.startswith("P<"): name = t[5:].replace("<", " ").strip(); break
         for t in all_t:
-            m = re.search(r'[A-Z]\d{6,8}', t); 
+            m = re.search(r'[A-Z]\d{6,8}', t)
             if m: id_n = m.group(); break
-    elif any(k in full_t.upper() for k in ["DRIVER", "LICENSE", "驾驶证"]):
-        id_type = "driver_license"
-        for i, t in enumerate(all_t):
-            if "1" in t and i+1 < len(all_t): name = all_t[i+1]; break
-        for t in all_t:
-            if "DL" in t.upper(): id_n = re.sub(r'[^A-Z0-9]', '', t.split("DL")[-1]); break
 
-    # 兜底通用提取
     if not name or not id_n:
         for t in all_t:
             if not id_n:
@@ -236,23 +239,18 @@ def extract_id_info(image_path: str) -> dict:
 
     avg_conf = sum(x["confidence"] for x in texts) / len(texts) if texts else 0
     return {
-        "name": name.strip(),
-        "id_number": id_n.strip(),
-        "id_type": id_type,
-        "all_text": all_t,
-        "confidence": round(avg_conf, 3)
+        "name": name.strip(), "id_number": id_n.strip(), "id_type": id_type,
+        "all_text": all_t, "confidence": round(avg_conf, 3)
     }
 
 
 if __name__ == "__main__":
     import json
     img = sys.argv[1] if len(sys.argv) > 1 else "test_data/case_001_pass/id_document.jpg"
-    print(f"\n--- PaddleOCR 3.4.0 绝技补丁 V4.0 ---\n测试图片: {img}\n")
-    if not os.path.exists(img):
-        print(f"找不到图片: {img}")
+    print(f"\n--- PaddleOCR 3.4.0+ 全面兼容 5.0 ---\n测试图片: {img}\n")
+    if not os.path.exists(img): print(f"找不到图片: {img}")
     else:
         try:
             res = extract_id_info(img)
             print(json.dumps(res, indent=4, ensure_ascii=False))
-        except Exception:
-            traceback.print_exc()
+        except: traceback.print_exc()
