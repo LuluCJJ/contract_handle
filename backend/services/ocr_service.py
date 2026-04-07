@@ -31,8 +31,7 @@ def _get_ocr():
             "use_gpu": False,        # 强制禁用 GPU 探测
             "use_xpu": False,
             "use_npu": False,
-            "use_mlu": False,
-            "show_log": False        # 减少日志输出，防止某些控制台编码问题
+            "use_mlu": False
         }
         
         # 自动挂载内置的离线模型（如果提取过）
@@ -56,9 +55,18 @@ def _get_ocr():
         try:
             _ocr_instance = PaddleOCR(**kwargs)
         except Exception as e:
-            print(f"PaddleOCR Init Error: {e}. Retrying with use_angle_cls=False...")
-            kwargs["use_angle_cls"] = False
-            _ocr_instance = PaddleOCR(**kwargs)
+            # 这里的报错可能是因为某个硬件参数不支持（如 show_log）或模型路径问题
+            print(f"PaddleOCR Full Init Warning: {e}. Retrying with minimal config...")
+            # 尽量保留基本路径
+            minimal_kwargs = {
+                "lang": "ch",
+                "use_gpu": False,
+                "use_angle_cls": False
+            }
+            if "det_model_dir" in kwargs: minimal_kwargs["det_model_dir"] = kwargs["det_model_dir"]
+            if "rec_model_dir" in kwargs: minimal_kwargs["rec_model_dir"] = kwargs["rec_model_dir"]
+            
+            _ocr_instance = PaddleOCR(**minimal_kwargs)
 
     return _ocr_instance
 
