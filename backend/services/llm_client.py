@@ -47,7 +47,7 @@ def safe_parse_json(text: str) -> dict:
     安全地解析 LLM 返回的 JSON 字符串。
     1. 处理 Markdown 代码块标记。
     2. 使用正则提取第一个 '{' 到最后一个 '}'。
-    3. 支持解析失败时的降级处理。
+    3. 修复尾部逗号等语法错误。
     """
     if not text:
         return {}
@@ -71,10 +71,9 @@ def safe_parse_json(text: str) -> dict:
         if match:
             try:
                 content = match.group()
-                # 尝试修复一些常见的错误，比如单引号和尾部逗号
-                fixed_content = content.replace("'", '"')
-                # 移除 JSON 对象中最后一个属性后的逗号 (常见 LLM 错误)
-                fixed_content = re.sub(r',\s*\}', '}', fixed_content)
+                # [V17.0 修正：移除粗暴的单引号替换，保留正文内容]
+                # 仅修复 JSON 对象中最后一个属性后的逗号 (常见 LLM 错误)
+                fixed_content = re.sub(r',\s*\}', '}', content)
                 fixed_content = re.sub(r',\s*\]', ']', fixed_content)
                 return json.loads(fixed_content)
             except Exception:
