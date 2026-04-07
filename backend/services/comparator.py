@@ -3,7 +3,7 @@
 """
 import json
 from backend.models.schemas import ExtractedData, CheckResult, Severity
-from backend.services.llm_client import chat_json
+from backend.services.llm_client import chat_json, safe_parse_json
 from backend.prompts.comparison import SEMANTIC_COMPARISON_SYSTEM_PROMPT, SEMANTIC_COMPARISON_USER_PROMPT_TEMPLATE
 
 
@@ -116,24 +116,22 @@ def run_comparisons(eflow: ExtractedData, word: ExtractedData, ocr: ExtractedDat
 
     llm_resp = chat_json(SEMANTIC_COMPARISON_SYSTEM_PROMPT, prompt)
 
-    try:
-        semantic_data = json.loads(llm_resp)
-        checks = semantic_data.get("semantic_checks", [])
-        for c in checks:
-            sev_str = c.get("severity", "PASS").upper()
-            try:
-                sev = Severity(sev_str)
-            except ValueError:
-                sev = Severity.PASS
+    # 使用安全解析
+    semantic_data = safe_parse_json(llm_resp)
+    checks = semantic_data.get("semantic_checks", [])
+    
+    for c in checks:
+        sev_str = c.get("severity", "PASS").upper()
+        try:
+            sev = Severity(sev_str)
+        except ValueError:
+            sev = Severity.PASS
 
-            results.append(CheckResult(
-                check_name=c.get("check_name", "语义检查项"),
-                result=c.get("result", "PASS"),
-                severity=sev,
-                detail=c.get("detail", "")
-            ))
-    except Exception as e:
-        print(f"语义对比提取失败: {e}")
-        pass # 静默忽略，或者打Info Log
+        results.append(CheckResult(
+            check_name=c.get("check_name", "语义检查项"),
+            result=c.get("result", "PASS"),
+            severity=sev,
+            detail=c.get("detail", "")
+        ))
 
     return results

@@ -2,7 +2,7 @@
 信息提取层
 """
 import json
-from backend.services.llm_client import chat_json
+from backend.services.llm_client import chat_json, safe_parse_json
 from backend.prompts.extraction import EXTRACTION_SYSTEM_PROMPT, EXTRACTION_USER_PROMPT_TEMPLATE
 from backend.models.schemas import ExtractedData, CompanyInfo, PersonInfo, AccountInfo, PermissionInfo
 
@@ -15,19 +15,7 @@ def extract_from_document(document_text: str) -> ExtractedData:
     response_text = chat_json(EXTRACTION_SYSTEM_PROMPT, user_prompt)
     
     # 尝试解析 JSON
-    try:
-        data = json.loads(response_text)
-    except json.JSONDecodeError:
-        # 兜底：如果 LLM 返回不是合法 JSON（尽管我们努力约束了）
-        import re
-        match = re.search(r'\{.*\}', response_text, re.DOTALL)
-        if match:
-            try:
-                data = json.loads(match.group())
-            except Exception:
-                data = {}
-        else:
-            data = {}
+    data = safe_parse_json(response_text)
             
     # 转为 Pydantic 模型
     extracted = ExtractedData(
