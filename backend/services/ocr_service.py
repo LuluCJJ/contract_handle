@@ -92,6 +92,21 @@ def _write_correct_yml(model_dir: str, model_type: str):
     content = _CORRECT_YMLS.get(model_type)
     if not content:
         return
+
+    # For recognition, PaddleX 3.x requires the actual list of characters in YAML,
+    # NOT a path. If not provided, it defaults to a-z and crashes on Chinese indices.
+    if model_type == "rec" and "character_dict: null" in content:
+        dict_path = os.path.join(project_root, "backend", "services", "ppocr_keys_v1.txt")
+        if os.path.exists(dict_path):
+            try:
+                with open(dict_path, "r", encoding="utf-8") as f:
+                    chars = [line.strip("\n") for line in f]
+                char_array_str = json.dumps(chars, ensure_ascii=False)
+                content = content.replace("character_dict: null", f"character_dict: {char_array_str}")
+                print(f"[OCR] Embedded {len(chars)} characters into rec yaml.")
+            except Exception as e:
+                print(f"[OCR] Failed to embed character dict: {e}")
+
     for fname in ["inference.yml", "deploy.yml"]:
         fpath = os.path.join(model_dir, fname)
         try:
