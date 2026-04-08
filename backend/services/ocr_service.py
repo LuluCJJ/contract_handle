@@ -1,5 +1,5 @@
 """
-OCR Service - PaddleOCR Identity Extraction (Offline V20.3)
+OCR Service - PaddleOCR Identity Extraction (Offline V20.4 Fix)
 Architecture: Dual-path (MRZ/Regex) + LLM Fallback (Configurable)
 """
 import os
@@ -25,10 +25,12 @@ def _ensure_inference_yml(model_dir: str, model_type: str):
     if not model_dir or not os.path.isdir(model_dir): return
     yml_p = os.path.join(model_dir, "inference.yml")
     deploy_p = os.path.join(model_dir, "deploy.yml")
+    
+    # === Fixed Templates (V20.4 Fix for CLS format) ===
     configs = {
         "det": "Global:\n  model_name: \"PP-OCRv5_server_det\"\n  model_type: det\nPreProcess:\n  transform_ops:\n    - DetResize:\n        limit_side_len: 960\n        limit_type: max\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  thresh: 0.3\n  box_thresh: 0.6\n",
         "rec": "Global:\n  model_name: \"PP-OCRv5_server_rec\"\n  model_type: rec\n  use_space_char: true\nPreProcess:\n  transform_ops:\n    - RecResize:\n        target_size: [3, 48, 320]\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  - CTCLabelDecode: null\n",
-        "cls": "Global:\n  model_name: \"PP-LCNet_x1_0_textline_ori\"\n  model_type: cls\nPreProcess:\n  transform_ops:\n    ResizeImage:\n      size: [192, 48]\n    NormalizeImage:\n      mean: 0.5\n      std: 0.5\nPostProcess:\n  - ClsPostProcess: null\n"
+        "cls": "Global:\n  model_name: \"PP-LCNet_x1_0_textline_ori\"\n  model_type: cls\nPreProcess:\n  transform_ops:\n    - ResizeImage:\n        size: [192, 48]\n    - NormalizeImage:\n        mean: 0.5\n        std: 0.5\n    - ToCHWImage: null\nPostProcess:\n  - ClsPostProcess: null\n"
     }
     content = configs.get(model_type)
     if content:
@@ -68,7 +70,6 @@ def _get_ocr():
     return _ocr_instance
 
 def _parse_id_card(all_text: list) -> dict:
-    """Chinese ID Card Path (Regex)"""
     full_t = " ".join(all_text)
     name, id_n = "", ""
     if any(k in full_t for k in ["姓名", "身份", "公民"]):
@@ -83,21 +84,13 @@ def _parse_id_card(all_text: list) -> dict:
     return {}
 
 def _parse_mrz(all_text: list) -> dict:
-    """International Passport Path (MRZ ICAO 9303)"""
     full_t = "".join(all_text).upper()
-    # Look for Passport Marker P< or common keywords
     if "P<" in full_t or any(k in full_t for k in ["PASSPORT", "DOCNO", "DOCUMENT NO"]):
         for t in all_text:
-            # Clean text for pattern matching
             t_clean = t.upper().replace(" ", "").replace(":", "")
-            
-            # 1. Standard MRZ Line 2 (TD3)
             m = re.search(r'([A-Z0-9]{9})\d[A-Z]{3}\d{6}', t_clean)
             if m:
                 return {"name": "Extracted via MRZ", "id_number": m.group(1), "id_type": "passport"}
-            
-            # 2. Key-Value Fallback (Exclude keywords from the ID number itself)
-            # Match 7-12 alphanumeric chars that are NOT common words
             m_simple = re.search(r'([A-Z0-9]{7,12})', t_clean)
             if m_simple:
                 val = m_simple.group(1)
@@ -107,7 +100,6 @@ def _parse_mrz(all_text: list) -> dict:
     return {}
 
 def extract_id_info(image_path: str) -> dict:
-    """Entry point with Dual-path + LLM Fallback"""
     ocr = _get_ocr()
     try:
         r = ocr.ocr(image_path)
@@ -122,21 +114,16 @@ def extract_id_info(image_path: str) -> dict:
     for line in r[0]:
         try: texts.append({"text": line[1][0], "confidence": line[1][1]})
         except: pass
-    
     all_t = [x["text"] for x in texts]
     
-    # 1. Try Passport Path
     res = _parse_mrz(all_t)
-    if not res:
-        # 2. Try ID Card Path
-        res = _parse_id_card(all_t)
+    if not res: res = _parse_id_card(all_t)
     
     if res and res.get("id_number"):
         res["all_text"] = all_t
         res["confidence"] = round(sum(x["confidence"] for x in texts)/len(texts), 3)
         return res
 
-    # 3. LLM Fallback
     print("[OCR] Regex/MRZ failed. Triggering LLM Fallback...")
     cfg = get_config()
     fallback_prompt = cfg.get_prompt("id_extraction_fallback")
