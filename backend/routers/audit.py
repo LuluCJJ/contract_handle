@@ -229,48 +229,67 @@ def list_testcases():
 
 
 def _parse_eflow(raw: dict) -> ExtractedData:
-    """将 E-Flow JSON 转为统一的 ExtractedData"""
+    """将 E-Flow JSON 转为统一的 ExtractedData，增加对 LLM 非标返回（如字符串代替字典）的兼容性"""
     data = ExtractedData(source="eflow")
+    if not isinstance(raw, dict):
+        data.raw_text = str(raw)
+        return data
 
-    # 支持新格式（嵌套）和旧格式（扁平）
-    company = raw.get("company", {})
-    if company:
-        data.company.name = company.get("name", "")
+    # 1. 公司信息 (Company)
+    company = raw.get("company")
+    if isinstance(company, str):
+        data.company.name = company
+    elif isinstance(company, dict):
+        data.company.name = company.get("name") or company.get("name_cn", "")
         data.company.name_en = company.get("name_en", "")
         data.company.cert_type = company.get("cert_type", "")
         data.company.cert_number = company.get("cert_number", "")
     else:
+        # 兼容旧版/扁平格式
         data.company.name = raw.get("company_name", "")
 
-    account = raw.get("account", {})
-    if account:
+    # 2. 账号信息 (Account)
+    account = raw.get("account")
+    if isinstance(account, str):
+        data.account.account_number = account
+    elif isinstance(account, dict):
         data.account.bank_name = account.get("bank_name", "")
         data.account.branch = account.get("branch", "")
         data.account.account_number = account.get("account_number", "")
 
-    operator = raw.get("operator", {})
-    if operator:
+    # 3. 经办人/申请人 (Operator)
+    operator = raw.get("operator")
+    if isinstance(operator, str):
+        data.operator.name = operator
+    elif isinstance(operator, dict):
         data.operator.name = operator.get("name", "")
         data.operator.id_type = operator.get("id_type", "")
         data.operator.id_number = operator.get("id_number", "")
     else:
+        # 兼容旧版/扁平格式
         data.operator.name = raw.get("applicant_name", "")
         data.operator.id_type = raw.get("id_type", "")
         data.operator.id_number = raw.get("id_number", "")
 
-    handler = raw.get("handler", {})
-    if handler:
+    # 4. 指派人 (Handler)
+    handler = raw.get("handler")
+    if isinstance(handler, str):
+        data.handler.name = handler
+    elif isinstance(handler, dict):
         data.handler.name = handler.get("name", "")
         data.handler.id_type = handler.get("id_type", "")
         data.handler.id_number = handler.get("id_number", "")
 
-    perms = raw.get("permissions", {})
-    if perms:
+    # 5. 权限信息 (Permissions)
+    perms = raw.get("permissions")
+    if isinstance(perms, str):
+        data.permissions.level = perms
+    elif isinstance(perms, dict):
         data.permissions.level = perms.get("level", "")
         data.permissions.single_limit = perms.get("single_limit", 0)
         data.permissions.daily_limit = perms.get("daily_limit", 0)
 
-    data.activity = raw.get("activity", "")
+    data.activity = str(raw.get("activity", ""))
     data.raw_text = json.dumps(raw, ensure_ascii=False)
 
     return data
