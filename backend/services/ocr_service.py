@@ -1,32 +1,35 @@
 """
-OCR Service - PaddleOCR Identity Extraction (Offline V20.4 Fix)
-Architecture: Dual-path (MRZ/Regex) + LLM Fallback (Configurable)
+OCR Service - PaddleOCR Identity Extraction (Offline V21.0 Robust)
+Fix: Removed paddle.set_flags dict call to prevent 'unhashable type: dict'
 """
 import os
 import re
 import sys
+import json
 import traceback
 from pathlib import Path
 from backend.config import get_config
 from backend.services.llm_client import chat_json
 
-# === Global Flags for Paddle Stability ===
-os.environ["FLAGS_use_mkldnn"] = "0"
-os.environ["FLAGS_use_onednn"] = "0"
-os.environ["FLAGS_enable_pir_api"] = "0"
-os.environ["FLAGS_enable_new_executor"] = "0"
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-os.environ["PADDLE_PLATFORM_DEVICE"] = "cpu"
+# === Global Physical Environment Flags ===
+ENV_FLAGS = {
+    "FLAGS_use_mkldnn": "0",
+    "FLAGS_use_onednn": "0",
+    "FLAGS_enable_pir_api": "0",
+    "FLAGS_enable_new_executor": "0",
+    "KMP_DUPLICATE_LIB_OK": "TRUE",
+    "PADDLE_PLATFORM_DEVICE": "cpu"
+}
+for k, v in ENV_FLAGS.items():
+    os.environ[k] = v
 
 _ocr_instance = None
 
 def _ensure_inference_yml(model_dir: str, model_type: str):
-    """V15.0 Patch: Scalarization of mean/std to avoid PIR ArrayAttribute Bug."""
     if not model_dir or not os.path.isdir(model_dir): return
     yml_p = os.path.join(model_dir, "inference.yml")
     deploy_p = os.path.join(model_dir, "deploy.yml")
     
-    # === Fixed Templates (V20.4 Fix for CLS format) ===
     configs = {
         "det": "Global:\n  model_name: \"PP-OCRv5_server_det\"\n  model_type: det\nPreProcess:\n  transform_ops:\n    - DetResize:\n        limit_side_len: 960\n        limit_type: max\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  thresh: 0.3\n  box_thresh: 0.6\n",
         "rec": "Global:\n  model_name: \"PP-OCRv5_server_rec\"\n  model_type: rec\n  use_space_char: true\nPreProcess:\n  transform_ops:\n    - RecResize:\n        target_size: [3, 48, 320]\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  - CTCLabelDecode: null\n",
@@ -47,6 +50,10 @@ def _find_model_sub_dir(base_dir, type_name) -> str | None:
 def _get_ocr():
     global _ocr_instance
     if _ocr_instance is None:
+        import paddle
+        # Using native os.environ for flags is more robust than set_flags(dict)
+        paddle.device.set_device('cpu')
+        
         from paddleocr import PaddleOCR
         script_p = os.path.abspath(__file__)
         base_d = os.path.dirname(os.path.dirname(os.path.dirname(script_p)))
@@ -89,8 +96,7 @@ def _parse_mrz(all_text: list) -> dict:
         for t in all_text:
             t_clean = t.upper().replace(" ", "").replace(":", "")
             m = re.search(r'([A-Z0-9]{9})\d[A-Z]{3}\d{6}', t_clean)
-            if m:
-                return {"name": "Extracted via MRZ", "id_number": m.group(1), "id_type": "passport"}
+            if m: return {"name": "Extracted via MRZ", "id_number": m.group(1), "id_type": "passport"}
             m_simple = re.search(r'([A-Z0-9]{7,12})', t_clean)
             if m_simple:
                 val = m_simple.group(1)
@@ -130,16 +136,10 @@ def extract_id_info(image_path: str) -> dict:
     if fallback_prompt:
         try:
             llm_res = chat_json(fallback_prompt, "\n".join(all_t))
-            if llm_res and llm_res.get("id_number"):
+            if llm_res and isinstance(llm_res, dict) and llm_res.get("id_number"):
                 llm_res["all_text"] = all_t
                 return llm_res
         except Exception as e:
             print(f"[OCR] LLM Fallback Error: {e}")
 
     return {"name": "", "id_number": "", "id_type": "unknown", "all_text": all_t}
-
-if __name__ == "__main__":
-    import json
-    img = sys.argv[1] if len(sys.argv) > 1 else "id.jpg"
-    if os.path.exists(img):
-        print(json.dumps(extract_id_info(img), indent=4, ensure_ascii=False))
