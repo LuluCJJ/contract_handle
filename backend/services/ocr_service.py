@@ -193,9 +193,21 @@ def extract_id_info(image_path: str) -> dict:
         return {"name": "", "id_number": "", "id_type": "unknown", "all_text": []}
 
     texts = []
-    for line in r[0]:
-        try: texts.append({"text": line[1][0], "confidence": line[1][1]})
-        except: pass
+    res_obj = r[0]
+    try:
+        # PaddleX 3.4.0 dict-like format
+        if "rec_texts" in res_obj and "rec_scores" in res_obj:
+            for t, s in zip(res_obj["rec_texts"], res_obj["rec_scores"]):
+                texts.append({"text": str(t), "confidence": float(s)})
+        else:
+            raise KeyError("fallback")
+    except (TypeError, KeyError):
+        # PaddleOCR 2.x standard list format
+        for line in res_obj:
+            try:
+                texts.append({"text": str(line[1][0]), "confidence": float(line[1][1])})
+            except Exception:
+                pass
     all_t = [x["text"] for x in texts]
 
     res = _parse_mrz(all_t)
