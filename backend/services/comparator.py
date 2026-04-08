@@ -3,6 +3,7 @@ Comparator Service - Compares extracted data against rules and identifies risks
 V21.2 - Supporting Configurable Prompts & VSCode Direct Run
 """
 import sys
+import datetime
 from pathlib import Path
 
 # VSCode Path Fix
@@ -18,7 +19,11 @@ def run_comparisons(extracted_data: dict, rules: str) -> dict:
     cfg = get_config()
     system_prompt = cfg.get_prompt("comparative_risk_report")
     if not system_prompt: return {"items": []}
-    user_prompt = {"extracted_data": extracted_data, "business_rules": rules}
+    user_prompt = {
+        "current_date": datetime.date.today().strftime("%Y-%m-%d"),
+        "extracted_data": extracted_data, 
+        "business_rules": rules
+    }
     try:
         return chat_json(system_prompt, user_prompt)
     except Exception as e:

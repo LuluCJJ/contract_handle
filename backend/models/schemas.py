@@ -25,6 +25,8 @@ class PersonInfo(BaseModel):
     name: str = ""
     id_type: str = ""
     id_number: str = ""
+    issue_date: str = ""
+    expiry_date: str = ""
 
 
 class CompanyInfo(BaseModel):

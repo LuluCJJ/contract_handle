@@ -72,6 +72,7 @@ async def run_audit(
         ocr_data.operator.name = ocr_result.get("name", "")
         ocr_data.operator.id_number = ocr_result.get("id_number", "")
         ocr_data.operator.id_type = ocr_result.get("id_type", "")
+        ocr_data.operator.expiry_date = ocr_result.get("expiry_date", "")
 
         # === Step 5: 信息提取 (LLM for Word) ===
         word_dict = extractor.extract_information(doc_full_text)
@@ -171,6 +172,7 @@ async def run_from_testcase(case_id: str = Form(...)):
     ocr_data.operator.name = ocr_result.get("name", "")
     ocr_data.operator.id_number = ocr_result.get("id_number", "")
     ocr_data.operator.id_type = ocr_result.get("id_type", "")
+    ocr_data.operator.expiry_date = ocr_result.get("expiry_date", "")
 
     combined_data = {
         "eflow": eflow_data.model_dump(),

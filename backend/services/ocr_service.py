@@ -167,31 +167,40 @@ def _parse_id_card(all_text: list) -> dict:
 def _parse_mrz(all_text: list) -> dict:
     name = ""
     id_n = ""
-    # ICAO 9303 TD3 MRZ Line 2: 9-char ID + 1 check + 3 nationality + 6 DOB + 1 check + 1 Sex + 6 Expiry
-    mrz2_regex = re.compile(r'([A-Z0-9<]{9})[0-9A-Z<][A-Z<]{3}[\d<]{6}[0-9A-Z<][MFX<][\d<]{6}')
+    expiry_date = ""
+    # ICAO 9303 TD3 MRZ Line 2: 9-char ID + 1 check + 3 nationality + 6 DOB + 1 check + 1 Sex + 6 Expiry(21-27)
+    mrz2_regex = re.compile(r'([A-Z0-9<]{9})[0-9A-Z<][A-Z<]{3}[\d<]{6}[0-9A-Z<][MFX<]([\d<]{6})')
 
     for t in all_text:
         t_clean = t.upper().replace(" ", "").replace(":", "")
 
-        # Try extract ID Number from MRZ Line 2
+        # Try extract ID and Expiry from MRZ Line 2
         m_line2 = mrz2_regex.search(t_clean)
         if m_line2:
             id_n = m_line2.group(1).replace("<", "")
+            raw_expiry = m_line2.group(2)
+            if raw_expiry.isdigit():
+                # Convert YYMMDD to YYYY-MM-DD (assume 20xx for expiry)
+                expiry_date = f"20{raw_expiry[0:2]}-{raw_expiry[2:4]}-{raw_expiry[4:6]}"
 
-        # Try extract Name from MRZ Line 1 (P followed by type, 3 country chars, then surname<<given)
-        if t_clean.startswith("P") and "<<" in t_clean and len(t_clean) > 20:
+        # Try extract Name from MRZ Line 1 (Wait: some OCR might miss the leading 'P')
+        # Logic: If it has '<<' and is long enough, it's likely the name line
+        if "<<" in t_clean and len(t_clean) > 20:
             try:
-                # Strip P, type (1 char) and Country (3 chars) = first 5 chars
-                parts = t_clean[5:].split("<<")
+                # Find the country code (3 chars) usually preceded by P< or just at start
+                # We'll look for the first << and take the part before it as surname
+                parts = t_clean.split("<<")
                 if len(parts) >= 2:
-                    surname = parts[0].replace("<", " ").strip()
-                    given_names = parts[1].replace("<", " ").strip()
-                    name = f"{surname} {given_names}".strip()
+                    # Surname is at the end of the first part (preceded by type/country)
+                    # For simplicity in OCR noise: take the last block of letters before <<
+                    surname_raw = re.sub(r'^.*?([A-Z]+)$', r'\1', parts[0])
+                    given_raw = parts[1].replace("<", " ").strip()
+                    name = f"{surname_raw} {given_raw}".strip()
             except Exception:
                 pass
 
     if id_n:
-        return {"name": name, "id_number": id_n, "id_type": "passport"}
+        return {"name": name, "id_number": id_n, "id_type": "passport", "expiry_date": expiry_date}
     return {}
 
 
