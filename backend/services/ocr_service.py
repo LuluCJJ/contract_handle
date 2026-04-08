@@ -1,244 +1,158 @@
 """
-OCR 服务 — PaddleOCR 证件信息提取（离线增强模式 V15.0）
-终极补丁：算子标量化 (Scalarization) + 强力执行器回退
+OCR Service - PaddleOCR Identity Extraction (Offline V20.3)
+Architecture: Dual-path (MRZ/Regex) + LLM Fallback (Configurable)
 """
 import os
 import re
 import sys
 import traceback
 from pathlib import Path
+from backend.config import get_config
+from backend.services.llm_client import chat_json
 
-# === V15.0 终极环境变量：彻底锁死所有新特性，回退到最稳健路径 ===
+# === Global Flags for Paddle Stability ===
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_use_onednn"] = "0"
 os.environ["FLAGS_enable_pir_api"] = "0"
-os.environ["FLAGS_enable_pir_in_executor"] = "0"
-os.environ["FLAGS_enable_new_executor"] = "0"  # 强制使用旧版 Executor
-os.environ["PADDLE_INF_PIR_API"] = "0"
-os.environ["PADDLE_ONEDNN_ENABLED"] = "0"
+os.environ["FLAGS_enable_new_executor"] = "0"
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 os.environ["PADDLE_PLATFORM_DEVICE"] = "cpu"
-os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
 _ocr_instance = None
 
-
 def _ensure_inference_yml(model_dir: str, model_type: str):
-    """
-    补齐 PaddleX 3.0 的 V15.0 终极技。
-    针对 ArrayAttribute<DoubleAttribute> 的报错：
-    将 [0.5, 0.5, 0.5] 这种数组形式全部改为 单个标量 (Scalar)。
-    这会迫使 PIR 使用 DoubleAttribute 路径而非 ArrayAttribute 路径，完美绕开 Bug。
-    """
-    if not model_dir or not os.path.isdir(model_dir):
-        return
-    
+    """V15.0 Patch: Scalarization of mean/std to avoid PIR ArrayAttribute Bug."""
+    if not model_dir or not os.path.isdir(model_dir): return
     yml_p = os.path.join(model_dir, "inference.yml")
     deploy_p = os.path.join(model_dir, "deploy.yml")
-    
-    print(f"[OCR] 正在执行 V15.0 算子标量化避雷补丁 ({model_type})...")
-    for p in [yml_p, deploy_p]:
-        if os.path.exists(p):
-            try: os.remove(p)
-            except: pass
-
-    # === V15.0 绝密模板：单值广播模式 ===
     configs = {
-        "det": """Global:
-  model_name: "PP-OCRv5_server_det"
-  model_type: det
-  algorithm: DB
-  task_type: OCR
-  version: "3.0.0"
-  transform_type: OCR
-PreProcess:
-  transform_ops:
-    - DetResize:
-        limit_side_len: 960
-        limit_type: max
-    - Normalize:
-        mean: 0.5
-        std: 0.5
-        order: hwc
-    - ToCHWImage: null
-    - KeepKeys:
-        keep_keys: [image, shape]
-PostProcess:
-  thresh: 0.3
-  box_thresh: 0.6
-  max_candidates: 1000
-  unclip_ratio: 1.5
-""",
-        "rec": """Global:
-  model_name: "PP-OCRv5_server_rec"
-  model_type: rec
-  algorithm: SVTR_LCNet
-  task_type: OCR
-  version: "3.0.0"
-  transform_type: OCR
-  use_space_char: true
-PreProcess:
-  transform_ops:
-    - RecResize:
-        target_size: [3, 48, 320]
-    - Normalize:
-        mean: 0.5
-        std: 0.5
-        order: hwc
-    - ToCHWImage: null
-    - KeepKeys:
-        keep_keys: [image]
-PostProcess:
-  - CTCLabelDecode: null
-""",
-        "cls": """Global:
-  model_name: "PP-LCNet_x1_0_textline_ori"
-  model_type: cls
-  algorithm: CLS
-  task_type: OCR
-  version: "3.0.0"
-  transform_type: OCR
-PreProcess:
-  transform_ops:
-    ResizeImage:
-      size: [192, 48]
-    NormalizeImage:
-      mean: 0.5
-      std: 0.5
-    ToCHWImage: null
-PostProcess:
-  - ClsPostProcess: null
-"""
+        "det": "Global:\n  model_name: \"PP-OCRv5_server_det\"\n  model_type: det\nPreProcess:\n  transform_ops:\n    - DetResize:\n        limit_side_len: 960\n        limit_type: max\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  thresh: 0.3\n  box_thresh: 0.6\n",
+        "rec": "Global:\n  model_name: \"PP-OCRv5_server_rec\"\n  model_type: rec\n  use_space_char: true\nPreProcess:\n  transform_ops:\n    - RecResize:\n        target_size: [3, 48, 320]\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  - CTCLabelDecode: null\n",
+        "cls": "Global:\n  model_name: \"PP-LCNet_x1_0_textline_ori\"\n  model_type: cls\nPreProcess:\n  transform_ops:\n    ResizeImage:\n      size: [192, 48]\n    NormalizeImage:\n      mean: 0.5\n      std: 0.5\nPostProcess:\n  - ClsPostProcess: null\n"
     }
-    
     content = configs.get(model_type)
     if content:
-        try:
-            for p in [yml_p, deploy_p]:
-                with open(p, "w", encoding="utf-8") as f:
-                    f.write(content)
-            print(f"[OCR] V15.0 标量化同步成功 (mean=0.5, std=0.5)")
-        except Exception as e:
-            print(f"[OCR] V15.0 写入失败: {e}")
-
+        for p in [yml_p, deploy_p]:
+            with open(p, "w", encoding="utf-8") as f: f.write(content)
 
 def _find_model_sub_dir(base_dir, type_name) -> str | None:
     path = os.path.join(base_dir, type_name)
     if not os.path.exists(path): return None
     for root, dirs, files in os.walk(path):
-        if "inference.pdmodel" in files:
-            return os.path.abspath(root)
+        if "inference.pdmodel" in files: return os.path.abspath(root)
     return None
-
 
 def _get_ocr():
     global _ocr_instance
     if _ocr_instance is None:
-        try:
-            import paddle
-            # 打印当前 FLAGS 状态以便调试
-            print(f"[OCR] 当前 PIR 状态: {os.environ.get('FLAGS_enable_pir_api')}")
-            print(f"[OCR] 当前 oneDNN 状态: {os.environ.get('FLAGS_use_mkldnn')}")
-            paddle.device.set_device('cpu')
-            paddle.set_flags({"FLAGS_use_mkldnn": 0, "FLAGS_enable_pir_api": 0, "FLAGS_enable_new_executor": 0})
-        except: pass
         from paddleocr import PaddleOCR
-
-        # 基准路径探测
         script_p = os.path.abspath(__file__)
         base_d = os.path.dirname(os.path.dirname(os.path.dirname(script_p)))
-        if not os.path.exists(os.path.join(base_d, "offline_models")):
-            base_d = os.getcwd()
-        off_d = os.path.join(base_d, "whl")
+        off_d = os.path.join(base_d, "offline_models", "whl")
+        if not os.path.exists(off_d): off_d = os.path.join(os.getcwd(), "whl")
 
-        # 强制更新目录下的 YAML
         det_p = _find_model_sub_dir(off_d, "det")
         rec_p = _find_model_sub_dir(off_d, "rec")
         cls_p = _find_model_sub_dir(off_d, "cls")
-
-        print(f"[OCR] 本地模型路径检测: DET={det_p is not None}, REC={rec_p is not None}, CLS={cls_p is not None}")
 
         if det_p: _ensure_inference_yml(det_p, "det")
         if rec_p: _ensure_inference_yml(rec_p, "rec")
         if cls_p: _ensure_inference_yml(cls_p, "cls")
 
-        # === V15.0 决战参数 ===
-        # 显式传递路径，防止库去读 C:\Users 改缓存
         base_kw = {
-            "use_gpu": False,
-            "enable_mkldnn": False,
-            "det_model_dir": det_p,
-            "rec_model_dir": rec_p,
-            "cls_model_dir": cls_p,
+            "use_gpu": False, "enable_mkldnn": False, 
+            "det_model_dir": det_p, "rec_model_dir": rec_p, "cls_model_dir": cls_p,
             "use_angle_cls": (cls_p is not None)
         }
-
-        try:
-            print(f"[OCR] 正在以 V15.0 标量算子模式强行启动...")
-            _ocr_instance = PaddleOCR(**base_kw)
-        except Exception as e:
-            print(f"[OCR] V15.0 终极启动依然受阻。")
-            traceback.print_exc()
-            try:
-                # 最后的最后：极简启动
-                _ocr_instance = PaddleOCR(det_model_dir=det_p, rec_model_dir=rec_p, use_gpu=False)
-            except:
-                print(f"[OCR] 引擎彻底封死。")
-
+        _ocr_instance = PaddleOCR(**base_kw)
     return _ocr_instance
 
+def _parse_id_card(all_text: list) -> dict:
+    """Chinese ID Card Path (Regex)"""
+    full_t = " ".join(all_text)
+    name, id_n = "", ""
+    if any(k in full_t for k in ["姓名", "身份", "公民"]):
+        for i, t in enumerate(all_text):
+            if "姓名" in t:
+                name = t.replace("姓名", "").strip() or (all_text[i+1] if i+1 < len(all_text) else "")
+                break
+        for t in all_text:
+            m = re.search(r'\d{17}[\dXx]', t)
+            if m: id_n = m.group(); break
+        if id_n: return {"name": name, "id_number": id_n, "id_type": "id_card"}
+    return {}
+
+def _parse_mrz(all_text: list) -> dict:
+    """International Passport Path (MRZ ICAO 9303)"""
+    full_t = "".join(all_text).upper()
+    # Look for Passport Marker P< or common keywords
+    if "P<" in full_t or any(k in full_t for k in ["PASSPORT", "DOCNO", "DOCUMENT NO"]):
+        for t in all_text:
+            # Clean text for pattern matching
+            t_clean = t.upper().replace(" ", "").replace(":", "")
+            
+            # 1. Standard MRZ Line 2 (TD3)
+            m = re.search(r'([A-Z0-9]{9})\d[A-Z]{3}\d{6}', t_clean)
+            if m:
+                return {"name": "Extracted via MRZ", "id_number": m.group(1), "id_type": "passport"}
+            
+            # 2. Key-Value Fallback (Exclude keywords from the ID number itself)
+            # Match 7-12 alphanumeric chars that are NOT common words
+            m_simple = re.search(r'([A-Z0-9]{7,12})', t_clean)
+            if m_simple:
+                val = m_simple.group(1)
+                if val not in ["PASSPORT", "DOCUMENTNO", "IDENTITY"]:
+                    if ("PASSPORT" in full_t or "DOC" in full_t):
+                        return {"name": "", "id_number": val, "id_type": "passport"}
+    return {}
 
 def extract_id_info(image_path: str) -> dict:
+    """Entry point with Dual-path + LLM Fallback"""
     ocr = _get_ocr()
     try:
         r = ocr.ocr(image_path)
     except Exception as e:
-        print(f"[OCR] 推理期崩溃 (V15.0): {e}")
+        print(f"[OCR] Inference Crash: {e}")
         r = None
 
     if not r or not r[0]:
-        return {"name": "", "id_number": "", "id_type": "unknown", "all_text": [], "confidence": 0.0}
+        return {"name": "", "id_number": "", "id_type": "unknown", "all_text": []}
 
-    # 解析逻辑保持兼容
     texts = []
-    if isinstance(r[0], list):
-        for line in r[0]:
-            try: texts.append({"text": line[1][0], "confidence": line[1][1]})
-            except: pass
-    elif isinstance(r[0], dict):
-        texts = [{"text": t, "confidence": s} for t, s in zip(r[0].get('rec_texts', []), r[0].get('rec_scores', []))]
-
-    all_t = [x["text"] for x in texts]
-    if not all_t: return {"name": "", "id_number": "", "id_type": "unknown", "all_text": [], "confidence": 0.0}
+    for line in r[0]:
+        try: texts.append({"text": line[1][0], "confidence": line[1][1]})
+        except: pass
     
-    full_t = " ".join(all_t)
-    name, id_n, id_type = "", "", "unknown"
+    all_t = [x["text"] for x in texts]
+    
+    # 1. Try Passport Path
+    res = _parse_mrz(all_t)
+    if not res:
+        # 2. Try ID Card Path
+        res = _parse_id_card(all_t)
+    
+    if res and res.get("id_number"):
+        res["all_text"] = all_t
+        res["confidence"] = round(sum(x["confidence"] for x in texts)/len(texts), 3)
+        return res
 
-    # 正则 (UTF-8)
-    if any(k in full_t for k in ["姓名", "性别", "身份号码", "身份证"]):
-        id_type = "id_card"
-        for i, t in enumerate(all_t):
-            if "姓名" in t:
-                name = t.replace("姓名", "").strip() or (all_t[i+1] if i+1 < len(all_t) else "")
-                break
-        for t in all_t:
-            m = re.search(r'\d{17}[\dXx]', t)
-            if m: id_n = m.group(); break
+    # 3. LLM Fallback
+    print("[OCR] Regex/MRZ failed. Triggering LLM Fallback...")
+    cfg = get_config()
+    fallback_prompt = cfg.get_prompt("id_extraction_fallback")
+    if fallback_prompt:
+        try:
+            llm_res = chat_json(fallback_prompt, "\n".join(all_t))
+            if llm_res and llm_res.get("id_number"):
+                llm_res["all_text"] = all_t
+                return llm_res
+        except Exception as e:
+            print(f"[OCR] LLM Fallback Error: {e}")
 
-    avg_conf = sum(x["confidence"] for x in texts) / len(texts) if texts else 0
-    return {
-        "name": name.strip(), "id_number": id_n.strip(), "id_type": id_type,
-        "all_text": all_t, "confidence": round(avg_conf, 3)
-    }
-
+    return {"name": "", "id_number": "", "id_type": "unknown", "all_text": all_t}
 
 if __name__ == "__main__":
     import json
-    img = sys.argv[1] if len(sys.argv) > 1 else "test_data/case_001_pass/id_document.jpg"
-    print(f"\n--- PaddleOCR 3.4.0+ V15.0 (标量避雷版) ---\n测试图片: {img}\n")
-    if not os.path.exists(img): print(f"找不到图片")
-    else:
-        try:
-            res = extract_id_info(img)
-            print(json.dumps(res, indent=4, ensure_ascii=False))
-        except: traceback.print_exc()
+    img = sys.argv[1] if len(sys.argv) > 1 else "id.jpg"
+    if os.path.exists(img):
+        print(json.dumps(extract_id_info(img), indent=4, ensure_ascii=False))

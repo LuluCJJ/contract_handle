@@ -1,64 +1,26 @@
 """
-信息提取层
+Information Extractor - Uses LLM to parse application forms
+V20.3 - Supporting Configurable Prompts
 """
 import json
-from backend.services.llm_client import chat_json, safe_parse_json
-from backend.prompts.extraction import EXTRACTION_SYSTEM_PROMPT, EXTRACTION_USER_PROMPT_TEMPLATE
-from backend.models.schemas import ExtractedData, CompanyInfo, PersonInfo, AccountInfo, PermissionInfo
+from backend.services.llm_client import chat_json
+from backend.config import get_config
 
-def extract_from_document(document_text: str) -> ExtractedData:
+def extract_information(document_text: str) -> dict:
     """
-    调用 LLM 从文档解析文本中提取结构化字段
+    Extract structured data from OCR text using the dynamic 'main_document_parsing' prompt.
     """
-    user_prompt = EXTRACTION_USER_PROMPT_TEMPLATE.format(document_text=document_text)
+    cfg = get_config()
+    system_prompt = cfg.get_prompt("main_document_parsing")
     
-    response_text = chat_json(EXTRACTION_SYSTEM_PROMPT, user_prompt)
+    if not system_prompt:
+        print("[Extractor] Warning: No main_document_parsing prompt found in config.")
+        return {}
+
+    user_prompt = f"请从以下银行申请文档内容中提取信息：\n\n{document_text}"
     
-    # 尝试解析 JSON
-    data = safe_parse_json(response_text)
-            
-    # 转为 Pydantic 模型
-    extracted = ExtractedData(
-        source="word",
-        raw_text=document_text[:2000] # 保留部分原文供调试
-    )
-    
-    if "company" in data:
-        c = data["company"]
-        extracted.company = CompanyInfo(
-            name=c.get("name", ""),
-            name_en=c.get("name_en", ""),
-            cert_type=c.get("cert_type", ""),
-            cert_number=c.get("cert_number", "")
-        )
-        
-    if "operator" in data:
-        o = data["operator"]
-        extracted.operator = PersonInfo(
-            name=o.get("name", ""),
-            id_type=o.get("id_type", ""),
-            id_number=o.get("id_number", "")
-        )
-        
-    if "account" in data:
-        a = data["account"]
-        extracted.account = AccountInfo(
-            bank_name=a.get("bank_name", ""),
-            branch=a.get("branch", ""),
-            account_number=a.get("account_number", "")
-        )
-        
-    if "permissions" in data:
-        p = data["permissions"]
-        try:
-            extracted.permissions = PermissionInfo(
-                level=p.get("level", ""),
-                single_limit=float(p.get("single_limit", 0)),
-                daily_limit=float(p.get("daily_limit", 0))
-            )
-        except ValueError:
-            pass # 不能转数字就算了
-            
-    extracted.activity = data.get("activity", "")
-    
-    return extracted
+    try:
+        return chat_json(system_prompt, user_prompt)
+    except Exception as e:
+        print(f"[Extractor] Error during extraction: {e}")
+        return {}
