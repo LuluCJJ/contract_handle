@@ -74,10 +74,39 @@ async def run_audit(
         ocr_data.operator.id_type = ocr_result.get("id_type", "")
 
         # === Step 5: 信息提取 (LLM for Word) ===
-        word_data = extractor.extract_from_document(doc_full_text)
+        word_dict = extractor.extract_information(doc_full_text)
+        word_data = ExtractedData(source="word")
+        try:
+            if word_dict: word_data = ExtractedData(source="word", **word_dict)
+        except: pass
 
         # === Step 6: 交叉比对 ===
-        checks = comparator.run_comparisons(eflow_data, word_data, ocr_data)
+        combined_data = {
+            "eflow": eflow_data.model_dump(),
+            "word": word_dict,
+            "ocr": ocr_data.model_dump()
+        }
+        rules = "规则：对比各渠道中的公司名称、法人及证件是否一致。"
+        comp_dict = comparator.run_comparisons(combined_data, rules)
+        
+        checks = []
+        for item in comp_dict.get("items", []):
+            field = item.get("field", "综合比对")
+            status = item.get("status", "PASS")
+            msg = item.get("message", "")
+            
+            from backend.models.schemas import Severity, CheckResult
+            sev = Severity.PASS
+            if status in ["FAIL", "CRITICAL"]: sev = Severity.CRITICAL
+            elif status == "WARNING": sev = Severity.WARNING
+            
+            checks.append(CheckResult(
+                check_name=f"{field}比对",
+                field_name=field,
+                result="MATCH" if sev == Severity.PASS else "MISMATCH",
+                severity=sev,
+                detail=msg
+            ))
 
         # === Step 7: 生成报告 ===
         report = reporter.generate_report(eflow_data, word_data, ocr_data, checks)
@@ -130,14 +159,44 @@ async def run_from_testcase(case_id: str = Form(...)):
     ocr_result = ocr_service.extract_id_info(str(img_path))
 
     # 提取 & 比对
-    word_data = extractor.extract_from_document(doc_full_text)
+    word_dict = extractor.extract_information(doc_full_text)
+    word_data = ExtractedData(source="word")
+    try:
+        if word_dict: word_data = ExtractedData(source="word", **word_dict)
+    except: pass
     
     ocr_data = ExtractedData(source="ocr")
     ocr_data.operator.name = ocr_result.get("name", "")
     ocr_data.operator.id_number = ocr_result.get("id_number", "")
     ocr_data.operator.id_type = ocr_result.get("id_type", "")
 
-    checks = comparator.run_comparisons(eflow_data, word_data, ocr_data)
+    combined_data = {
+        "eflow": eflow_data.model_dump(),
+        "word": word_dict,
+        "ocr": ocr_data.model_dump()
+    }
+    rules = "规则：对比各渠道中的公司名称、法人及证件是否一致。"
+    comp_dict = comparator.run_comparisons(combined_data, rules)
+    
+    checks = []
+    for item in comp_dict.get("items", []):
+        field = item.get("field", "综合比对")
+        status = item.get("status", "PASS")
+        msg = item.get("message", "")
+        
+        from backend.models.schemas import Severity, CheckResult
+        sev = Severity.PASS
+        if status in ["FAIL", "CRITICAL"]: sev = Severity.CRITICAL
+        elif status == "WARNING": sev = Severity.WARNING
+        
+        checks.append(CheckResult(
+            check_name=f"{field}比对",
+            field_name=field,
+            result="MATCH" if sev == Severity.PASS else "MISMATCH",
+            severity=sev,
+            detail=msg
+        ))
+
     report = reporter.generate_report(eflow_data, word_data, ocr_data, checks)
 
     return {
