@@ -1,6 +1,6 @@
 """
-OCR Service - PaddleOCR Identity Extraction (Offline V21.1 Ultra-Robust)
-Fix: Resolved 'TypeError: unhashable type dict' in CLS predictor by using flat dict for transform_ops.
+OCR Service - PaddleOCR Identity Extraction (Offline V21.2)
+Fix: Removed use_gpu param to avoid redundant checks, added sys.path auto-fix for VSCode.
 """
 import os
 import re
@@ -8,20 +8,26 @@ import sys
 import json
 import traceback
 from pathlib import Path
+
+# === VSCode / Direct Running Path Fix ===
+# Ensure project root is in sys.path even when running this file directly
+script_dir = Path(__file__).resolve().parent
+project_root = str(script_dir.parent.parent)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Import backend modules after path fix
 from backend.config import get_config
 from backend.services.llm_client import chat_json
 
 # === Global Physical Environment Flags ===
-ENV_FLAGS = {
-    "FLAGS_use_mkldnn": "0",
-    "FLAGS_use_onednn": "0",
-    "FLAGS_enable_pir_api": "0",
-    "FLAGS_enable_new_executor": "0",
-    "KMP_DUPLICATE_LIB_OK": "TRUE",
-    "PADDLE_PLATFORM_DEVICE": "cpu"
-}
-for k, v in ENV_FLAGS.items():
-    os.environ[k] = v
+# Force CPU mode before any paddle imports
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_use_onednn"] = "0"
+os.environ["FLAGS_enable_pir_api"] = "0"
+os.environ["FLAGS_enable_new_executor"] = "0"
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["PADDLE_PLATFORM_DEVICE"] = "cpu"
 
 _ocr_instance = None
 
@@ -30,8 +36,6 @@ def _ensure_inference_yml(model_dir: str, model_type: str):
     yml_p = os.path.join(model_dir, "inference.yml")
     deploy_p = os.path.join(model_dir, "deploy.yml")
     
-    # === Fixed Templates (V21.1 Final Fix) ===
-    # Important: CLS Predictor often expects dict keys for transforms, not list items.
     configs = {
         "det": "Global:\n  model_name: \"PP-OCRv5_server_det\"\n  model_type: det\nPreProcess:\n  transform_ops:\n    - DetResize:\n        limit_side_len: 960\n        limit_type: max\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  thresh: 0.3\n  box_thresh: 0.6\n",
         "rec": "Global:\n  model_name: \"PP-OCRv5_server_rec\"\n  model_type: rec\n  use_space_char: true\nPreProcess:\n  transform_ops:\n    - RecResize:\n        target_size: [3, 48, 320]\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  - CTCLabelDecode: null\n",
@@ -56,23 +60,23 @@ def _get_ocr():
         paddle.device.set_device('cpu')
         
         from paddleocr import PaddleOCR
-        script_p = os.path.abspath(__file__)
-        base_d = os.path.dirname(os.path.dirname(os.path.dirname(script_p)))
-        off_d = os.path.join(base_d, "offline_models", "whl")
+        off_d = os.path.join(project_root, "offline_models", "whl")
         if not os.path.exists(off_d): off_d = os.path.join(os.getcwd(), "whl")
 
         det_p = _find_model_sub_dir(off_d, "det")
         rec_p = _find_model_sub_dir(off_d, "rec")
-        cls_p = _find_model_sub_dir(off_d, "cls")
+        # CLS (textline orientation) disabled: its predictor has YAML format
+        # incompatibility causing 'unhashable type: dict' errors
 
         if det_p: _ensure_inference_yml(det_p, "det")
         if rec_p: _ensure_inference_yml(rec_p, "rec")
-        if cls_p: _ensure_inference_yml(cls_p, "cls")
 
+        # Use new PaddleOCR 3.4.0 parameter names; disable orientation classifier
         base_kw = {
-            "use_gpu": False, "enable_mkldnn": False, 
-            "det_model_dir": det_p, "rec_model_dir": rec_p, "cls_model_dir": cls_p,
-            "use_angle_cls": (cls_p is not None)
+            "enable_mkldnn": False,
+            "text_detection_model_dir": det_p,
+            "text_recognition_model_dir": rec_p,
+            "use_textline_orientation": False,
         }
         _ocr_instance = PaddleOCR(**base_kw)
     return _ocr_instance
@@ -144,3 +148,9 @@ def extract_id_info(image_path: str) -> dict:
             print(f"[OCR] LLM Fallback Error: {e}")
 
     return {"name": "", "id_number": "", "id_type": "unknown", "all_text": all_t}
+
+if __name__ == "__main__":
+    import json
+    img = sys.argv[1] if len(sys.argv) > 1 else "id.jpg"
+    if os.path.exists(img):
+        print(json.dumps(extract_id_info(img), indent=4, ensure_ascii=False))

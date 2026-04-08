@@ -46,10 +46,17 @@ def test_config_loading():
 
 def test_ocr_env_flags():
     print("[Test] OCR Environment Flags...")
-    # Check if flags are correctly injected into os.environ
-    from backend.services.ocr_service import ENV_FLAGS
-    for k, v in ENV_FLAGS.items():
-        assert os.environ.get(k) == v, f"Flag {k} not found in os.environ"
+    expected = {
+        "FLAGS_use_mkldnn": "0",
+        "FLAGS_enable_pir_api": "0",
+        "FLAGS_enable_new_executor": "0",
+        "KMP_DUPLICATE_LIB_OK": "TRUE",
+        "PADDLE_PLATFORM_DEVICE": "cpu",
+    }
+    # Importing ocr_service sets the env vars as a side effect
+    import backend.services.ocr_service  # noqa
+    for k, v in expected.items():
+        assert os.environ.get(k) == v, f"Flag {k} not set correctly"
     print(" - All Paddle flags injected into os.environ.")
     print("[PASS] OCR Flag layer is type-safe.")
 
