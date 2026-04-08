@@ -1,6 +1,6 @@
 """
-OCR Service - PaddleOCR Identity Extraction (Offline V21.0 Robust)
-Fix: Removed paddle.set_flags dict call to prevent 'unhashable type: dict'
+OCR Service - PaddleOCR Identity Extraction (Offline V21.1 Ultra-Robust)
+Fix: Resolved 'TypeError: unhashable type dict' in CLS predictor by using flat dict for transform_ops.
 """
 import os
 import re
@@ -30,10 +30,12 @@ def _ensure_inference_yml(model_dir: str, model_type: str):
     yml_p = os.path.join(model_dir, "inference.yml")
     deploy_p = os.path.join(model_dir, "deploy.yml")
     
+    # === Fixed Templates (V21.1 Final Fix) ===
+    # Important: CLS Predictor often expects dict keys for transforms, not list items.
     configs = {
         "det": "Global:\n  model_name: \"PP-OCRv5_server_det\"\n  model_type: det\nPreProcess:\n  transform_ops:\n    - DetResize:\n        limit_side_len: 960\n        limit_type: max\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  thresh: 0.3\n  box_thresh: 0.6\n",
         "rec": "Global:\n  model_name: \"PP-OCRv5_server_rec\"\n  model_type: rec\n  use_space_char: true\nPreProcess:\n  transform_ops:\n    - RecResize:\n        target_size: [3, 48, 320]\n    - Normalize:\n        mean: 0.5\n        std: 0.5\nPostProcess:\n  - CTCLabelDecode: null\n",
-        "cls": "Global:\n  model_name: \"PP-LCNet_x1_0_textline_ori\"\n  model_type: cls\nPreProcess:\n  transform_ops:\n    - ResizeImage:\n        size: [192, 48]\n    - NormalizeImage:\n        mean: 0.5\n        std: 0.5\n    - ToCHWImage: null\nPostProcess:\n  - ClsPostProcess: null\n"
+        "cls": "Global:\n  model_name: \"PP-LCNet_x1_0_textline_ori\"\n  model_type: cls\nPreProcess:\n  transform_ops:\n    ResizeImage:\n      size: [192, 48]\n    NormalizeImage:\n      mean: 0.5\n      std: 0.5\n    ToCHWImage: null\nPostProcess:\n  - ClsPostProcess: null\n"
     }
     content = configs.get(model_type)
     if content:
@@ -51,7 +53,6 @@ def _get_ocr():
     global _ocr_instance
     if _ocr_instance is None:
         import paddle
-        # Using native os.environ for flags is more robust than set_flags(dict)
         paddle.device.set_device('cpu')
         
         from paddleocr import PaddleOCR
