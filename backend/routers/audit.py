@@ -75,10 +75,11 @@ async def run_audit(
 
         # === Step 5: 信息提取 (LLM for Word) ===
         word_dict = extractor.extract_information(doc_full_text)
-        word_data = ExtractedData(source="word")
-        try:
-            if word_dict: word_data = ExtractedData(source="word", **word_dict)
-        except: pass
+        if isinstance(word_dict, dict) and word_dict:
+            word_data = _parse_eflow(word_dict)
+            word_data.source = "word"
+        else:
+            word_data = ExtractedData(source="word")
 
         # === Step 6: 交叉比对 ===
         combined_data = {
@@ -160,10 +161,11 @@ async def run_from_testcase(case_id: str = Form(...)):
 
     # 提取 & 比对
     word_dict = extractor.extract_information(doc_full_text)
-    word_data = ExtractedData(source="word")
-    try:
-        if word_dict: word_data = ExtractedData(source="word", **word_dict)
-    except: pass
+    if isinstance(word_dict, dict) and word_dict:
+        word_data = _parse_eflow(word_dict)
+        word_data.source = "word"
+    else:
+        word_data = ExtractedData(source="word")
     
     ocr_data = ExtractedData(source="ocr")
     ocr_data.operator.name = ocr_result.get("name", "")

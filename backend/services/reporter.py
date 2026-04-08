@@ -37,20 +37,24 @@ def generate_report(eflow: ExtractedData, word: ExtractedData, ocr: ExtractedDat
     # === 生成全局 LLM 总结报告 ===
     import json
     from backend.services.llm_client import chat_json
-    from backend.prompts.comparison import OVERALL_SUMMARY_SYSTEM_PROMPT, OVERALL_SUMMARY_USER_PROMPT_TEMPLATE
+    from backend.config import get_config
+    
+    cfg = get_config()
+    sys_prompt = cfg.get_prompt("overall_summary") or "根据提取结果生成包含 summary (字面总结) 和 risk_insights (风险点数组) 的JSON。"
+    
+    user_prompt = f"""
+    请根据以下审核数据生成全局风险报告：
+    - EFlow 申请信息: {eflow.model_dump_json(exclude={'raw_text'})}
+    - 银行表单解析: {word.model_dump_json(exclude={'raw_text'})}
+    - OCR 证件识别: {ocr.model_dump_json(exclude={'raw_text'})}
+    - 交叉比对冲突项: {json.dumps([c.model_dump() for c in checks], ensure_ascii=False)}
+    """
     
     try:
-        user_prompt = OVERALL_SUMMARY_USER_PROMPT_TEMPLATE.format(
-            eflow_data=eflow.model_dump_json(exclude={'raw_text'}),
-            word_data=word.model_dump_json(exclude={'raw_text'}),
-            ocr_data=ocr.model_dump_json(exclude={'raw_text'}),
-            checks_data=json.dumps([c.model_dump() for c in checks], ensure_ascii=False)
-        )
-        
-        llm_resp = chat_json(OVERALL_SUMMARY_SYSTEM_PROMPT, user_prompt)
-        report.llm_summary = json.loads(llm_resp)
+        llm_resp = chat_json(sys_prompt, user_prompt)
+        report.llm_summary = llm_resp if isinstance(llm_resp, dict) else {"summary": str(llm_resp), "risk_insights": []}
     except Exception as e:
         print(f"全局总结报告生成失败: {e}")
-        report.llm_summary = {"summary": "整体文档风险审查报告生成失败。", "risk_insights": ["无法连接大模型或大模型返回格式错误。"]}
+        report.llm_summary = {"summary": "整体文档风险审查报告生成失败。", "risk_insights": [f"大模型响应处理异常: {e}"]}
 
     return report
