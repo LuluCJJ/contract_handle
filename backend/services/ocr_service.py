@@ -1,7 +1,7 @@
 """
-OCR Service - PaddleOCR Identity Extraction (Offline V22.0)
-Strategy: STOP overwriting inference.yml - let PaddleX read its own model files.
-           Only fix the mean/std scalar issue if files are missing/corrupted.
+OCR Service - PaddleOCR Identity Extraction (Offline V22.2)
+Fix: Write CORRECT inference.yml using exact operator names from PaddleX 3.x source.
+     PIR is disabled via env flags, so array mean/std values are safe to use.
 """
 import os
 import re
@@ -20,6 +20,7 @@ from backend.config import get_config
 from backend.services.llm_client import chat_json
 
 # === Global ENV Flags (set before any paddle import) ===
+# PIR disabled => array mean/std values are safe (no ArrayAttribute bug)
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_use_onednn"] = "0"
 os.environ["FLAGS_enable_pir_api"] = "0"
@@ -30,6 +31,51 @@ os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
 _ocr_instance = None
 
+# === Correct YAML templates verified against PaddleX 3.x predictor source ===
+# det: registered funcs are DetResizeForTest, NormalizeImage, ToCHWImage
+# rec: registered funcs are RecResizeImg
+# PostProcess: dict format with 'name' key (not list)
+_CORRECT_YMLS = {
+    "det": """\
+Global:
+  model_name: "PP-OCRv5_server_det"
+  model_type: det
+PreProcess:
+  transform_ops:
+    - DetResizeForTest:
+        limit_side_len: 960
+        limit_type: max
+    - NormalizeImage:
+        mean: [0.485, 0.456, 0.406]
+        std: [0.229, 0.224, 0.225]
+        scale: 0.00392156862745098
+        order: ""
+    - ToCHWImage: null
+PostProcess:
+  name: DBPostProcess
+  thresh: 0.3
+  box_thresh: 0.6
+  max_candidates: 1000
+  unclip_ratio: 2.0
+  use_dilation: false
+  score_mode: fast
+  box_type: quad
+""",
+    "rec": """\
+Global:
+  model_name: "PP-OCRv5_server_rec"
+  model_type: rec
+  use_space_char: true
+PreProcess:
+  transform_ops:
+    - RecResizeImg:
+        image_shape: [3, 48, 320]
+PostProcess:
+  name: CTCLabelDecode
+  character_dict: null
+""",
+}
+
 
 def _find_model_sub_dir(base_dir, type_name) -> str | None:
     path = os.path.join(base_dir, type_name)
@@ -37,6 +83,23 @@ def _find_model_sub_dir(base_dir, type_name) -> str | None:
     for root, dirs, files in os.walk(path):
         if "inference.pdmodel" in files: return os.path.abspath(root)
     return None
+
+
+def _write_correct_yml(model_dir: str, model_type: str):
+    """Write the correct inference.yml with verified PaddleX 3.x operator names."""
+    if not model_dir or not os.path.isdir(model_dir):
+        return
+    content = _CORRECT_YMLS.get(model_type)
+    if not content:
+        return
+    for fname in ["inference.yml", "deploy.yml"]:
+        fpath = os.path.join(model_dir, fname)
+        try:
+            with open(fpath, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"[OCR] Wrote correct yml ({model_type}): {fpath}")
+        except Exception as e:
+            print(f"[OCR] Failed to write {fpath}: {e}")
 
 
 def _get_ocr():
@@ -56,8 +119,11 @@ def _get_ocr():
         print(f"[OCR] det={det_p}")
         print(f"[OCR] rec={rec_p}")
 
-        # DO NOT write/overwrite inference.yml - let PaddleX use the model's own config
-        # Use new PaddleOCR 3.4.0 API parameters; disable orientation classifier (CLS)
+        # Write verified yml files (correct operator names from PaddleX source)
+        _write_correct_yml(det_p, "det")
+        _write_correct_yml(rec_p, "rec")
+
+        # Use new PaddleOCR 3.4.0 API; disable orientation classifier (CLS)
         base_kw = {
             "enable_mkldnn": False,
             "text_detection_model_dir": det_p,
@@ -141,8 +207,16 @@ def extract_id_info(image_path: str) -> dict:
 
 
 if __name__ == "__main__":
-    img = sys.argv[1] if len(sys.argv) > 1 else "id.jpg"
-    if os.path.exists(img):
-        print(json.dumps(extract_id_info(img), indent=4, ensure_ascii=False))
-    else:
-        print(f"Image not found: {img}")
+    # Test with ID card and passport images
+    test_cases = [
+        ("test_data/case_001_pass/id_document.jpg", "身份证测试"),
+        ("test_data/case_007_risk_idtype/id_document.jpg", "护照/异型证件测试"),
+    ]
+    for img_path, label in test_cases:
+        print(f"\n{'='*50}")
+        print(f"[TEST] {label}: {img_path}")
+        if os.path.exists(img_path):
+            result = extract_id_info(img_path)
+            print(json.dumps(result, indent=4, ensure_ascii=False))
+        else:
+            print(f"  [SKIP] 图片不存在: {img_path}")
