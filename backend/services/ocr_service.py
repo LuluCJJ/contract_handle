@@ -165,18 +165,33 @@ def _parse_id_card(all_text: list) -> dict:
 
 
 def _parse_mrz(all_text: list) -> dict:
-    full_t = "".join(all_text).upper()
-    if "P<" in full_t or any(k in full_t for k in ["PASSPORT", "DOCNO", "DOCUMENT NO"]):
-        for t in all_text:
-            t_clean = t.upper().replace(" ", "").replace(":", "")
-            m = re.search(r'([A-Z0-9]{9})\d[A-Z]{3}\d{6}', t_clean)
-            if m: return {"name": "Extracted via MRZ", "id_number": m.group(1), "id_type": "passport"}
-            m_simple = re.search(r'([A-Z0-9]{7,12})', t_clean)
-            if m_simple:
-                val = m_simple.group(1)
-                if val not in ["PASSPORT", "DOCUMENTNO", "IDENTITY"]:
-                    if "PASSPORT" in full_t or "DOC" in full_t:
-                        return {"name": "", "id_number": val, "id_type": "passport"}
+    name = ""
+    id_n = ""
+    # ICAO 9303 TD3 MRZ Line 2: 9-char ID + 1 check + 3 nationality + 6 DOB + 1 check + 1 Sex + 6 Expiry
+    mrz2_regex = re.compile(r'([A-Z0-9<]{9})[0-9A-Z<][A-Z<]{3}[\d<]{6}[0-9A-Z<][MFX<][\d<]{6}')
+
+    for t in all_text:
+        t_clean = t.upper().replace(" ", "").replace(":", "")
+
+        # Try extract ID Number from MRZ Line 2
+        m_line2 = mrz2_regex.search(t_clean)
+        if m_line2:
+            id_n = m_line2.group(1).replace("<", "")
+
+        # Try extract Name from MRZ Line 1 (P followed by type, 3 country chars, then surname<<given)
+        if t_clean.startswith("P") and "<<" in t_clean and len(t_clean) > 20:
+            try:
+                # Strip P, type (1 char) and Country (3 chars) = first 5 chars
+                parts = t_clean[5:].split("<<")
+                if len(parts) >= 2:
+                    surname = parts[0].replace("<", " ").strip()
+                    given_names = parts[1].replace("<", " ").strip()
+                    name = f"{surname} {given_names}".strip()
+            except Exception:
+                pass
+
+    if id_n:
+        return {"name": name, "id_number": id_n, "id_type": "passport"}
     return {}
 
 
