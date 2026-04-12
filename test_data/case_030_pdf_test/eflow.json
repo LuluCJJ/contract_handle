@@ -1,0 +1,37 @@
+{
+  "flow_id": "EF2026043001",
+  "company": {
+    "name": "Global Trade Hub Limited",
+    "cert_type": "Registration No",
+    "cert_number": "91440300MAB123456X",
+    "legal_representative": "David Chen",
+    "phone": "+86 0755 8888 9999",
+    "industry": "Trade"
+  },
+  "account": {
+    "bank_name": "Bank of Metropolis",
+    "branch": "Main Branch",
+    "account_number": "6222001234567890123"
+  },
+  "operator": {
+    "name": "David Chen",
+    "id_type": "Passport",
+    "id_number": "G98765432",
+    "role": "Administrator",
+    "phone": "13800001111"
+  },
+  "handler": {
+    "name": "David Chen",
+    "id_type": "Passport",
+    "id_number": "G98765432",
+    "role": "Applicant",
+    "phone": "13800001111"
+  },
+  "activity": "New Enrollment",
+  "permissions": {
+    "level": "Level_B",
+    "single_limit": 1000000,
+    "daily_limit": 5000000
+  },
+  "apply_date": "2026-04-30"
+}

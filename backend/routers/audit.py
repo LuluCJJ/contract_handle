@@ -222,68 +222,143 @@ def list_testcases():
     return {"cases": cases}
 
 
+def _format_activity(raw_activity) -> str:
+    """
+    将复杂的业务勾选 JSON 转换为人类可读的优雅描述文字。
+    处理 application_type, services, selected 等嵌套结构。
+    """
+    if not raw_activity: return "未录入业务"
+    if isinstance(raw_activity, str): return raw_activity
+    if not isinstance(raw_activity, dict): return str(raw_activity)
+
+    parts = []
+    
+    # 1. 尝试提取应用类型
+    app_type = raw_activity.get("application_type") or raw_activity.get("type")
+    if app_type:
+        parts.append(f"申请业务：{app_type}")
+    
+    # 2. 尝试提取勾选的功能列表
+    # 适配结构: {"services": {"web": {"selected": [...]}}}
+    services = raw_activity.get("services", {})
+    web_selected = []
+    if isinstance(services, dict):
+        web_selected = services.get("web", {}).get("selected", [])
+    
+    # 也可以适配扁平结构 {"permissions": {"web_channel": [...]}}
+    if not web_selected:
+        web_selected = raw_activity.get("permissions", {}).get("web_channel", [])
+
+    if web_selected and isinstance(web_selected, list):
+        parts.append(f"功能清单：{', '.join(web_selected)}")
+
+    # 3. 适配 LLM 直接提取的表格多行选项 (new_account, modification, deletion)
+    if not parts:
+        for k, v in raw_activity.items():
+            if isinstance(v, list) and v:
+                parts.append(f"{k}: {', '.join(v)}")
+            elif isinstance(v, str) and v:
+                parts.append(f"{k}: {v}")
+
+    # 最后的回退机制：把所有信息转化为文本
+    if not parts:
+        try:
+            import json
+            return json.dumps(raw_activity, ensure_ascii=False)
+        except:
+            return str(raw_activity)
+
+    return " | ".join(parts)
+
+
 def _parse_eflow(raw: dict) -> ExtractedData:
-    """将 E-Flow JSON 转为统一的 ExtractedData，增加对 LLM 非标返回（如字符串代替字典）的兼容性"""
-    data = ExtractedData(source="eflow")
+    """
+    将原始字典（可能是 E-Flow 或 LLM 提取结果）转为统一的 ExtractedData。
+    具有极强的鲁棒性，支持多种命名变体和嵌套深度。
+    """
+    # 强制将原始 JSON 存入 raw_text 以便底层回溯
+    data = ExtractedData(source="unknown")
     if not isinstance(raw, dict):
         data.raw_text = str(raw)
         return data
 
-    # 1. 公司信息 (Company)
-    company = raw.get("company")
-    if isinstance(company, str):
-        data.company.name = company
-    elif isinstance(company, dict):
-        data.company.name = company.get("name") or company.get("name_cn", "")
-        data.company.name_en = company.get("name_en", "")
-        data.company.cert_type = company.get("cert_type", "")
-        data.company.cert_number = company.get("cert_number", "")
+    # --- 1. 公司信息 (Company) ---
+    co = raw.get("company") or {}
+    # 如果 co 只是字符串，则直接设为名字
+    if isinstance(co, str):
+        data.company.name = co
+    elif isinstance(co, dict):
+        data.company.name = co.get("name") or co.get("name_cn") or raw.get("company_name", "")
+        data.company.name_en = co.get("name_en", "")
+        data.company.cert_type = co.get("cert_type") or co.get("id_type", "")
+        data.company.cert_number = co.get("cert_number") or co.get("id_number") or raw.get("cert_number", "")
+        data.company.legal_representative = co.get("legal_representative") or co.get("legal_person") or ""
+        data.company.phone = co.get("phone") or co.get("telephone", "")
+        data.company.industry = co.get("industry") or co.get("market_segment", "")
+
+    # --- 2. 账号信息 (Account) ---
+    # 大模型通常返回列表，E-Flow 通常返回单个字典
+    accs = raw.get("account") or raw.get("accounts") or []
+    if isinstance(accs, list) and len(accs) > 0:
+        first_acc = accs[0]
     else:
-        # 兼容旧版/扁平格式
-        data.company.name = raw.get("company_name", "")
+        first_acc = accs if isinstance(accs, dict) else {}
 
-    # 2. 账号信息 (Account)
-    account = raw.get("account")
-    if isinstance(account, str):
-        data.account.account_number = account
-    elif isinstance(account, dict):
-        data.account.bank_name = account.get("bank_name", "")
-        data.account.branch = account.get("branch", "")
-        data.account.account_number = account.get("account_number", "")
+    data.account.bank_name = first_acc.get("bank_name", "")
+    data.account.branch = first_acc.get("branch", "")
+    data.account.account_number = first_acc.get("account_number") or first_acc.get("number") or raw.get("account_number", "")
 
-    # 3. 经办人/申请人 (Operator)
-    operator = raw.get("operator")
-    if isinstance(operator, str):
-        data.operator.name = operator
-    elif isinstance(operator, dict):
-        data.operator.name = operator.get("name", "")
-        data.operator.id_type = operator.get("id_type", "")
-        data.operator.id_number = operator.get("id_number", "")
+    # --- 3. 经办人/操作员 (Operator) ---
+    # 逻辑同账号：支持列表降维
+    ops = raw.get("operator") or raw.get("operators") or {}
+    if isinstance(ops, list) and len(ops) > 0:
+        first_op = ops[0]
     else:
-        # 兼容旧版/扁平格式
-        data.operator.name = raw.get("applicant_name", "")
-        data.operator.id_type = raw.get("id_type", "")
-        data.operator.id_number = raw.get("id_number", "")
+        first_op = ops if isinstance(ops, dict) else {}
 
-    # 4. 指派人 (Handler)
-    handler = raw.get("handler")
-    if isinstance(handler, str):
-        data.handler.name = handler
-    elif isinstance(handler, dict):
-        data.handler.name = handler.get("name", "")
-        data.handler.id_type = handler.get("id_type", "")
-        data.handler.id_number = handler.get("id_number", "")
+    data.operator.name = first_op.get("name") or raw.get("applicant_name", "")
+    data.operator.id_type = first_op.get("id_type") or raw.get("id_type", "")
+    data.operator.id_number = first_op.get("id_number") or raw.get("id_number", "")
+    data.operator.expiry_date = first_op.get("expiry_date", "")
+    data.operator.role = first_op.get("role", "")
+    data.operator.phone = first_op.get("phone") or first_op.get("mobile_phone", "")
 
-    # 5. 权限信息 (Permissions)
-    perms = raw.get("permissions")
-    if isinstance(perms, str):
-        data.permissions.level = perms
-    elif isinstance(perms, dict):
-        data.permissions.level = perms.get("level", "")
-        data.permissions.single_limit = perms.get("single_limit", 0)
-        data.permissions.daily_limit = perms.get("daily_limit", 0)
+    # --- 3.1 指派人/开户人 (Handler) ---
+    hds = raw.get("handler") or raw.get("handlers") or {}
+    if isinstance(hds, list) and len(hds) > 0:
+        first_hd = hds[0]
+    else:
+        first_hd = hds if isinstance(hds, dict) else {}
 
-    data.activity = str(raw.get("activity", ""))
+    data.handler.name = first_hd.get("name", "")
+    data.handler.id_type = first_hd.get("id_type", "")
+    data.handler.id_number = first_hd.get("id_number", "")
+    data.handler.expiry_date = first_hd.get("expiry_date", "")
+    data.handler.role = first_hd.get("role", "")
+    data.handler.phone = first_hd.get("phone") or first_hd.get("mobile_phone", "")
+
+    # --- 4. 权限与限额 (Permissions) ---
+    def _parse_limit(val):
+        if not val: return 0
+        if isinstance(val, (int, float)): return float(val)
+        try:
+            return float(str(val).replace(",", "").replace("，", ""))
+        except:
+            return 0
+
+    perms = raw.get("permissions") or {}
+    if isinstance(perms, dict):
+        data.permissions.level = perms.get("level") or perms.get("authorization_level", "")
+        data.permissions.single_limit = _parse_limit(perms.get("single_limit") or 0)
+        data.permissions.daily_limit = _parse_limit(perms.get("daily_limit") or 0)
+    
+    # 尝试从账号信息中补全限额（针对某些大模型把限额放在账号里的情况）
+    if not data.permissions.single_limit and first_acc:
+        data.permissions.single_limit = _parse_limit(first_acc.get("single_limit") or 0)
+        data.permissions.daily_limit = _parse_limit(first_acc.get("daily_accumulated_limit") or 0)
+
+    # --- 5. 业务活动 (Activity) ---
+    data.activity = _format_activity(raw.get("activity") or raw.get("permissions", {}))
+    
     data.raw_text = json.dumps(raw, ensure_ascii=False)
-
     return data

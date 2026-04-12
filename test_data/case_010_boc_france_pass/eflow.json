@@ -4,7 +4,10 @@
     "name": "Global Trading Solutions SARL",
     "name_en": "Global Trading Solutions SARL",
     "cert_type": "Business Registration",
-    "cert_number": "RCS Paris B 880 012 345"
+    "cert_number": "RCS Paris B 880 012 345",
+    "legal_representative": "Wang Wei",
+    "phone": "021-12345678",
+    "industry": "一般贸易"
   },
   "account": {
     "bank_name": "Bank of China Paris Branch",
@@ -14,12 +17,16 @@
   "operator": {
     "name": "Li Wei",
     "id_type": "Passport",
-    "id_number": "E12345678"
+    "id_number": "E12345678",
+    "phone": "13800138000",
+    "role": "操作员"
   },
   "handler": {
     "name": "Li Wei",
     "id_type": "Passport",
-    "id_number": "E12345678"
+    "id_number": "E12345678",
+    "phone": "13800138000",
+    "role": "经办人"
   },
   "activity": "Apply for e-Corp Internet Banking Service",
   "permissions": {

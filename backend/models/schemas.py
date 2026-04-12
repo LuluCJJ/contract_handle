@@ -34,6 +34,8 @@ class PersonInfo(BaseModel):
     id_number: str = ""
     issue_date: str = ""
     expiry_date: str = ""
+    role: str = ""
+    phone: str = ""
 
 
 class CompanyInfo(BaseModel):
@@ -41,6 +43,9 @@ class CompanyInfo(BaseModel):
     name_en: str = ""
     cert_type: str = ""
     cert_number: str = ""
+    legal_representative: str = ""
+    phone: str = ""
+    industry: str = ""
 
 
 class AccountInfo(BaseModel):

@@ -3,7 +3,10 @@
   "company": {
     "name": "上海星辰国际贸易有限公司",
     "cert_type": "统一社会信用代码",
-    "cert_number": "91310000567890ABCD"
+    "cert_number": "91310000567890ABCD",
+    "legal_representative": "Wang Wei",
+    "phone": "021-12345678",
+    "industry": "一般贸易"
   },
   "account": {
     "bank_name": "中国银行",
@@ -13,12 +16,16 @@
   "operator": {
     "name": "Liu Yang",
     "id_type": "身份证",
-    "id_number": "310101199001011234"
+    "id_number": "310101199001011234",
+    "phone": "13800138000",
+    "role": "操作员"
   },
   "handler": {
     "name": "Liu Yang",
     "id_type": "身份证",
-    "id_number": "310101199001011234"
+    "id_number": "310101199001011234",
+    "phone": "13800138000",
+    "role": "经办人"
   },
   "activity": "开通企业网上银行",
   "permissions": {

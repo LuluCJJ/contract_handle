@@ -307,10 +307,25 @@ function renderColumn(id, extData) {
     
     if(extData.company.name) addkv('单位名称', extData.company.name);
     if(extData.company.cert_number) addkv('单位统一码', extData.company.cert_number);
+    if(extData.company.legal_representative) addkv('法定代表人', extData.company.legal_representative);
+    
+    if(extData.handler && extData.handler.name) addkv('指派人姓名', extData.handler.name);
     if(extData.operator.name) addkv('操作员姓名', extData.operator.name);
-    if(extData.operator.id_number) addkv('操作员证件', `${extData.operator.id_type || ''} ${extData.operator.id_number}`);
+    
+    if(extData.operator.id_number) addkv('操作证件', `${extData.operator.id_type || ''} ${extData.operator.id_number}`);
     if(extData.account.account_number) addkv('业务账号', extData.account.account_number);
-    if(extData.activity) addkv('办理业务', extData.activity);
+    
+    if(extData.permissions && (extData.permissions.level || extData.permissions.single_limit)) {
+        addkv('权限与限额', `${extData.permissions.level || ''} (单笔: ${extData.permissions.single_limit || 0})`);
+    }
+
+    if(extData.activity) {
+        let act = extData.activity;
+        if(typeof act === 'object') {
+            try { act = JSON.stringify(act); } catch(e) { act = String(act); }
+        }
+        addkv('办理业务', act);
+    }
     
     col.innerHTML = html || '<div class="ext-group"><div class="ext-label">无提取数据</div></div>';
 }

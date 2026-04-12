@@ -3,7 +3,10 @@
   "company": {
     "name": "Hong Kong Bright Future Trading Ltd",
     "cert_type": "Business Registration Certificate",
-    "cert_number": "91110000MA0EXAMPLE"
+    "cert_number": "91110000MA0EXAMPLE",
+    "legal_representative": "Wang Wei",
+    "phone": "021-12345678",
+    "industry": "一般贸易"
   },
   "account": {
     "bank_name": "Bank of China (Hong Kong)",
@@ -13,12 +16,16 @@
   "operator": {
     "name": "Chen Ming",
     "id_type": "Passport",
-    "id_number": "K12345678"
+    "id_number": "K12345678",
+    "phone": "13800138000",
+    "role": "操作员"
   },
   "handler": {
     "name": "Chen Ming",
     "id_type": "Passport",
-    "id_number": "K12345678"
+    "id_number": "K12345678",
+    "phone": "13800138000",
+    "role": "经办人"
   },
   "activity": "网银新开户",
   "permissions": {

@@ -1,0 +1,36 @@
+{
+  "company": {
+    "name": "ICBC Global Trading Ltd",
+    "cert_number": "BN12345678",
+    "cert_type": "Business Registration",
+    "legal_representative": "Li Wei",
+    "phone": "+44 207 123 4567"
+  },
+  "account": {
+    "account_number": "ICBC-LON-88889999",
+    "bank_name": "ICBC London Branch"
+  },
+  "operator": {
+    "name": "Wang Ming",
+    "id_type": "Passport",
+    "id_number": "P87654321",
+    "phone": "+44 7700 900077"
+  },
+  "permissions": {
+    "level": "III",
+    "single_limit": 500000,
+    "daily_limit": 2000000
+  },
+  "activity": {
+    "type": "New Application",
+    "services": {
+      "web": {
+        "selected": [
+          "Enquiry",
+          "Transfer In",
+          "Transfer Out"
+        ]
+      }
+    }
+  }
+}

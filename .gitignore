@@ -31,3 +31,4 @@ offline_paths.txt
 .DS_Store
 Thumbs.db
 inputs/bank_template/
+scratch/

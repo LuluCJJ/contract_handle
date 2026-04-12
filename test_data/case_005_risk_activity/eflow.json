@@ -4,7 +4,10 @@
     "name": "深圳市前海科技有限公司",
     "name_en": "Qianhai Technology Co., Limited",
     "cert_type": "统一社会信用代码",
-    "cert_number": "91440300MA5EXXXX1L"
+    "cert_number": "91440300MA5EXXXX1L",
+    "legal_representative": "Wang Wei",
+    "phone": "021-12345678",
+    "industry": "一般贸易"
   },
   "account": {
     "bank_name": "中国建设银行",
@@ -14,12 +17,16 @@
   "operator": {
     "name": "张光",
     "id_type": "身份证",
-    "id_number": "1324331974"
+    "id_number": "1324331974",
+    "phone": "13800138000",
+    "role": "操作员"
   },
   "handler": {
     "name": "张光",
     "id_type": "身份证",
-    "id_number": "1324331974"
+    "id_number": "1324331974",
+    "phone": "13800138000",
+    "role": "经办人"
   },
   "activity": "开通网上银行",
   "permissions": {

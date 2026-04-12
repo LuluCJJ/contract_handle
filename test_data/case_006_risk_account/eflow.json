@@ -4,7 +4,10 @@
     "name": "前海科技有限公司",
     "name_en": "Qianhai Technology Co., Limited",
     "cert_type": "USCI",
-    "cert_number": "91440300MA5EXXXX1L"
+    "cert_number": "91440300MA5EXXXX1L",
+    "legal_representative": "Wang Wei",
+    "phone": "021-12345678",
+    "industry": "一般贸易"
   },
   "account": {
     "bank_name": "Bank of China",
@@ -14,12 +17,16 @@
   "operator": {
     "name": "SANTA CLAUS",
     "id_type": "Passport",
-    "id_number": "N1234567"
+    "id_number": "N1234567",
+    "phone": "13800138000",
+    "role": "操作员"
   },
   "handler": {
     "name": "SANTA CLAUS",
     "id_type": "Passport",
-    "id_number": "N1234567"
+    "id_number": "N1234567",
+    "phone": "13800138000",
+    "role": "经办人"
   },
   "activity": "Open Online Banking",
   "permissions": {

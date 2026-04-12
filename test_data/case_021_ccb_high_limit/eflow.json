@@ -3,7 +3,10 @@
   "company": {
     "name": "深圳市鑫达珠宝贸易有限公司",
     "cert_type": "统一社会信用代码",
-    "cert_number": "91440300MA5F123456"
+    "cert_number": "91440300MA5F123456",
+    "legal_representative": "Wang Wei",
+    "phone": "021-12345678",
+    "industry": "一般贸易"
   },
   "account": {
     "bank_name": "中国建设银行",
@@ -13,12 +16,16 @@
   "operator": {
     "name": "赵强",
     "id_type": "身份证",
-    "id_number": "440301198806061234"
+    "id_number": "440301198806061234",
+    "phone": "13800138000",
+    "role": "操作员"
   },
   "handler": {
     "name": "赵强",
     "id_type": "身份证",
-    "id_number": "440301198806061234"
+    "id_number": "440301198806061234",
+    "phone": "13800138000",
+    "role": "经办人"
   },
   "activity": "珠宝黄金贸易网银开通",
   "permissions": {
