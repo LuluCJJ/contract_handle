@@ -1,0 +1,30 @@
+{
+  "flow_id": "EF2026041201",
+  "company": {
+    "name": "Hong Kong Bright Future Trading Ltd",
+    "cert_type": "Business Registration Certificate",
+    "cert_number": "91110000MA0EXAMPLE"
+  },
+  "account": {
+    "bank_name": "Bank of China (Hong Kong)",
+    "branch": "Admiralty Branch",
+    "account_number": "012-676-0-012345-6"
+  },
+  "operator": {
+    "name": "Chen Ming",
+    "id_type": "Passport",
+    "id_number": "K12345678"
+  },
+  "handler": {
+    "name": "Chen Ming",
+    "id_type": "Passport",
+    "id_number": "K12345678"
+  },
+  "activity": "网银新开户",
+  "permissions": {
+    "level": "Level_A",
+    "single_limit": 500000,
+    "daily_limit": 2000000
+  },
+  "apply_date": "2026-04-12"
+}

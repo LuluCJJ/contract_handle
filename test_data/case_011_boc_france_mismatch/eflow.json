@@ -1,0 +1,30 @@
+{
+  "flow_id": "EF2026041101",
+  "company": {
+    "name": "Global Trading Solutions SARL",
+    "cert_type": "Business Registration",
+    "cert_number": "RCS Paris B 880 012 345"
+  },
+  "account": {
+    "bank_name": "Bank of China Paris Branch",
+    "branch": "Paris Main",
+    "account_number": "FR7630004000031234567890143"
+  },
+  "operator": {
+    "name": "Li Wei",
+    "id_type": "Passport",
+    "id_number": "E99999999"
+  },
+  "handler": {
+    "name": "Li Wei",
+    "id_type": "Passport",
+    "id_number": "E99999999"
+  },
+  "activity": "Apply for e-Corp Internet Banking Service",
+  "permissions": {
+    "level": "Level_A",
+    "single_limit": 100000,
+    "daily_limit": 500000
+  },
+  "apply_date": "2026-04-11"
+}

@@ -1,19 +1,22 @@
 """
-审核流程 API — Phase 1 骨架
+审核流程 API — V2.0 with PDF support & Intermediate Result Saving
 """
 import os
 import uuid
 import json
 import shutil
+import datetime
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from backend.models.schemas import AuditReport, ExtractedData
+from backend.models.schemas import AuditReport, ExtractedData, Severity, CheckResult
 from backend.services import doc_parser, ocr_service, extractor, comparator, reporter
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
 # 上传文件临时存储
 UPLOAD_BASE = Path(__file__).parent.parent.parent / "uploads"
+# 中间结果保存目录
+OUTPUTS_BASE = Path(__file__).parent.parent.parent / "outputs"
 
 
 def _save_upload(file: UploadFile, task_dir: Path, filename: str) -> str:
@@ -24,100 +27,146 @@ def _save_upload(file: UploadFile, task_dir: Path, filename: str) -> str:
     return str(dest)
 
 
+def _save_intermediate(output_dir: Path, step_name: str, data, is_text=False):
+    """保存中间步骤的结果到 outputs 目录，方便 debug 和逐步复盘"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filepath = output_dir / f"{step_name}.json"
+    try:
+        if is_text:
+            filepath = output_dir / f"{step_name}.txt"
+            filepath.write_text(str(data), encoding="utf-8")
+        elif isinstance(data, str):
+            filepath.write_text(data, encoding="utf-8")
+        else:
+            filepath.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8"
+            )
+        print(f"[Audit] Saved intermediate: {filepath}")
+    except Exception as e:
+        print(f"[Audit] Warning: Failed to save intermediate {step_name}: {e}")
+
+
+def _run_pipeline(task_id: str, eflow_path: str, doc_path: str, img_path: str) -> dict:
+    """
+    核心审核管线（共享逻辑），每步结果保存到 outputs/{task_id}/
+    """
+    # 中间结果存储目录
+    out_dir = OUTPUTS_BASE / task_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # === Step 1: 解析 E-Flow ===
+    with open(eflow_path, "r", encoding="utf-8") as f:
+        eflow_raw = json.load(f)
+    eflow_data = _parse_eflow(eflow_raw)
+    _save_intermediate(out_dir, "step1_eflow_parsed", eflow_data.model_dump())
+
+    # === Step 2: 解析银行文档（支持 .doc/.docx/.pdf） ===
+    parsed_doc = doc_parser.parse_document(doc_path)
+    doc_full_text = doc_parser.get_full_text_for_llm(parsed_doc)
+    _save_intermediate(out_dir, "step2a_doc_structure", {
+        "num_paragraphs": parsed_doc["num_paragraphs"],
+        "num_tables": parsed_doc["num_tables"],
+        "paragraphs": parsed_doc["paragraphs"][:20],  # 保存前20个段落
+        "tables_raw_sample": [t[:3] for t in parsed_doc["tables_raw"]],  # 每表前3行
+    })
+    _save_intermediate(out_dir, "step2b_doc_full_text_for_llm", doc_full_text, is_text=True)
+
+    # === Step 3: OCR 证件 ===
+    ocr_result = ocr_service.extract_id_info(img_path)
+    ocr_data = ExtractedData(source="ocr")
+    ocr_data.operator.name = ocr_result.get("name", "")
+    ocr_data.operator.id_number = ocr_result.get("id_number", "")
+    ocr_data.operator.id_type = ocr_result.get("id_type", "")
+    ocr_data.operator.expiry_date = ocr_result.get("expiry_date", "")
+    _save_intermediate(out_dir, "step3_ocr_result", {
+        "raw_ocr": ocr_result,
+        "structured": ocr_data.model_dump()
+    })
+
+    # === Step 4: 信息提取 (LLM for 文档) ===
+    word_dict = extractor.extract_information(doc_full_text)
+    _save_intermediate(out_dir, "step4_llm_extraction", word_dict)
+    
+    if isinstance(word_dict, dict) and word_dict:
+        word_data = _parse_eflow(word_dict)
+        word_data.source = "word"
+    else:
+        word_data = ExtractedData(source="word")
+
+    # === Step 5: 交叉比对 ===
+    combined_data = {
+        "eflow": eflow_data.model_dump(),
+        "word": word_dict,
+        "ocr": ocr_data.model_dump()
+    }
+    rules = "规则：对比各渠道中的公司名称、法人及证件是否一致。"
+    comp_dict = comparator.run_comparisons(combined_data, rules)
+    _save_intermediate(out_dir, "step5_comparison_result", comp_dict)
+
+    checks = []
+    for item in comp_dict.get("items", []):
+        field = item.get("field", "综合比对")
+        status = item.get("status", "PASS")
+        msg = item.get("message", "")
+
+        sev = Severity.PASS
+        if status in ["FAIL", "CRITICAL"]: sev = Severity.CRITICAL
+        elif status == "WARNING": sev = Severity.WARNING
+        elif status == "INFO": sev = Severity.INFO
+
+        checks.append(CheckResult(
+            check_name=f"{field}比对",
+            field_name=field,
+            result="MATCH" if sev == Severity.PASS else "MISMATCH",
+            severity=sev,
+            detail=msg
+        ))
+
+    # === Step 6: 生成报告 ===
+    report = reporter.generate_report(eflow_data, word_data, ocr_data, checks)
+    _save_intermediate(out_dir, "step6_final_report", report.model_dump())
+
+    # 保存运行元数据
+    _save_intermediate(out_dir, "_metadata", {
+        "task_id": task_id,
+        "run_time": datetime.datetime.now().isoformat(),
+        "doc_path": doc_path,
+        "eflow_path": eflow_path,
+        "img_path": img_path,
+    })
+
+    return {
+        "task_id": task_id,
+        "status": "completed",
+        "report": report.model_dump(),
+        "intermediate_dir": str(out_dir),
+    }
+
+
 @router.post("/run")
 async def run_audit(
     eflow_json: UploadFile = File(..., description="E-Flow JSON 文件"),
-    bank_doc: UploadFile = File(..., description="银行申请表 (.doc/.docx)"),
+    bank_doc: UploadFile = File(..., description="银行申请表 (.doc/.docx/.pdf)"),
     id_document: UploadFile = File(..., description="证件图片 (.jpg/.png)"),
 ):
     """
-    执行完整的预审流程：
-    1. 解析 E-Flow JSON
-    2. 解析银行申请表
-    3. OCR 证件图片
-    4. 信息提取（LLM）
-    5. 交叉比对
-    6. 生成报告
+    执行完整的预审流程
     """
-    # 创建任务目录
     task_id = str(uuid.uuid4())[:8]
     task_dir = UPLOAD_BASE / task_id
     task_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        # === Step 1: 保存上传文件 ===
         eflow_path = _save_upload(eflow_json, task_dir, "eflow.json")
-        
+
         doc_ext = Path(bank_doc.filename or "doc.docx").suffix
         doc_path = _save_upload(bank_doc, task_dir, f"bank_app{doc_ext}")
-        
+
         img_ext = Path(id_document.filename or "id.jpg").suffix
         img_path = _save_upload(id_document, task_dir, f"id_document{img_ext}")
 
-        # === Step 2: 解析 E-Flow ===
-        with open(eflow_path, "r", encoding="utf-8") as f:
-            eflow_raw = json.load(f)
-
-        eflow_data = _parse_eflow(eflow_raw)
-
-        # === Step 3: 解析银行文档 ===
-        parsed_doc = doc_parser.parse_document(doc_path)
-        doc_full_text = doc_parser.get_full_text_for_llm(parsed_doc)
-
-        # === Step 4: OCR 证件 ===
-        ocr_result = ocr_service.extract_id_info(img_path)
-        ocr_data = ExtractedData(
-            source="ocr",
-        )
-        ocr_data.operator.name = ocr_result.get("name", "")
-        ocr_data.operator.id_number = ocr_result.get("id_number", "")
-        ocr_data.operator.id_type = ocr_result.get("id_type", "")
-        ocr_data.operator.expiry_date = ocr_result.get("expiry_date", "")
-
-        # === Step 5: 信息提取 (LLM for Word) ===
-        word_dict = extractor.extract_information(doc_full_text)
-        if isinstance(word_dict, dict) and word_dict:
-            word_data = _parse_eflow(word_dict)
-            word_data.source = "word"
-        else:
-            word_data = ExtractedData(source="word")
-
-        # === Step 6: 交叉比对 ===
-        combined_data = {
-            "eflow": eflow_data.model_dump(),
-            "word": word_dict,
-            "ocr": ocr_data.model_dump()
-        }
-        rules = "规则：对比各渠道中的公司名称、法人及证件是否一致。"
-        comp_dict = comparator.run_comparisons(combined_data, rules)
-        
-        checks = []
-        for item in comp_dict.get("items", []):
-            field = item.get("field", "综合比对")
-            status = item.get("status", "PASS")
-            msg = item.get("message", "")
-            
-            from backend.models.schemas import Severity, CheckResult
-            sev = Severity.PASS
-            if status in ["FAIL", "CRITICAL"]: sev = Severity.CRITICAL
-            elif status == "WARNING": sev = Severity.WARNING
-            
-            checks.append(CheckResult(
-                check_name=f"{field}比对",
-                field_name=field,
-                result="MATCH" if sev == Severity.PASS else "MISMATCH",
-                severity=sev,
-                detail=msg
-            ))
-
-        # === Step 7: 生成报告 ===
-        report = reporter.generate_report(eflow_data, word_data, ocr_data, checks)
-
-        return {
-            "task_id": task_id,
-            "status": "completed",
-            "report": report.model_dump()
-        }
+        return _run_pipeline(task_id, eflow_path, doc_path, img_path)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -138,7 +187,7 @@ async def run_from_testcase(case_id: str = Form(...)):
     img_path = None
 
     for f in test_dir.iterdir():
-        if f.suffix in (".doc", ".docx") and f.stem != "eflow":
+        if f.suffix in (".doc", ".docx", ".pdf") and f.stem != "eflow":
             doc_path = f
         if f.suffix in (".jpg", ".jpeg", ".png"):
             img_path = f
@@ -146,68 +195,11 @@ async def run_from_testcase(case_id: str = Form(...)):
     if not eflow_path.exists():
         raise HTTPException(status_code=404, detail="缺少 eflow.json")
     if not doc_path:
-        raise HTTPException(status_code=404, detail="缺少银行申请文档")
+        raise HTTPException(status_code=404, detail="缺少银行申请文档 (.doc/.docx/.pdf)")
     if not img_path:
         raise HTTPException(status_code=404, detail="缺少证件图片")
 
-    # 解析
-    with open(eflow_path, "r", encoding="utf-8") as f:
-        eflow_raw = json.load(f)
-    eflow_data = _parse_eflow(eflow_raw)
-
-    parsed_doc = doc_parser.parse_document(str(doc_path))
-    doc_full_text = doc_parser.get_full_text_for_llm(parsed_doc)
-
-    ocr_result = ocr_service.extract_id_info(str(img_path))
-
-    # 提取 & 比对
-    word_dict = extractor.extract_information(doc_full_text)
-    if isinstance(word_dict, dict) and word_dict:
-        word_data = _parse_eflow(word_dict)
-        word_data.source = "word"
-    else:
-        word_data = ExtractedData(source="word")
-    
-    ocr_data = ExtractedData(source="ocr")
-    ocr_data.operator.name = ocr_result.get("name", "")
-    ocr_data.operator.id_number = ocr_result.get("id_number", "")
-    ocr_data.operator.id_type = ocr_result.get("id_type", "")
-    ocr_data.operator.expiry_date = ocr_result.get("expiry_date", "")
-
-    combined_data = {
-        "eflow": eflow_data.model_dump(),
-        "word": word_dict,
-        "ocr": ocr_data.model_dump()
-    }
-    rules = "规则：对比各渠道中的公司名称、法人及证件是否一致。"
-    comp_dict = comparator.run_comparisons(combined_data, rules)
-    
-    checks = []
-    for item in comp_dict.get("items", []):
-        field = item.get("field", "综合比对")
-        status = item.get("status", "PASS")
-        msg = item.get("message", "")
-        
-        from backend.models.schemas import Severity, CheckResult
-        sev = Severity.PASS
-        if status in ["FAIL", "CRITICAL"]: sev = Severity.CRITICAL
-        elif status == "WARNING": sev = Severity.WARNING
-        
-        checks.append(CheckResult(
-            check_name=f"{field}比对",
-            field_name=field,
-            result="MATCH" if sev == Severity.PASS else "MISMATCH",
-            severity=sev,
-            detail=msg
-        ))
-
-    report = reporter.generate_report(eflow_data, word_data, ocr_data, checks)
-
-    return {
-        "task_id": case_id,
-        "status": "completed",
-        "report": report.model_dump()
-    }
+    return _run_pipeline(case_id, str(eflow_path), str(doc_path), str(img_path))
 
 
 @router.get("/testcases")

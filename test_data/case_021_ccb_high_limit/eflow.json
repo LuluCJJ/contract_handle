@@ -1,0 +1,30 @@
+{
+  "flow_id": "EF2026042101",
+  "company": {
+    "name": "深圳市鑫达珠宝贸易有限公司",
+    "cert_type": "统一社会信用代码",
+    "cert_number": "91440300MA5F123456"
+  },
+  "account": {
+    "bank_name": "中国建设银行",
+    "branch": "深圳罗湖支行",
+    "account_number": "4420123456780001"
+  },
+  "operator": {
+    "name": "Zhao Qiang",
+    "id_type": "身份证",
+    "id_number": "440301198806061234"
+  },
+  "handler": {
+    "name": "Zhao Qiang",
+    "id_type": "身份证",
+    "id_number": "440301198806061234"
+  },
+  "activity": "珠宝黄金贸易网银开通",
+  "permissions": {
+    "level": "Level_S",
+    "single_limit": 10000000,
+    "daily_limit": 50000000
+  },
+  "apply_date": "2026-04-21"
+}

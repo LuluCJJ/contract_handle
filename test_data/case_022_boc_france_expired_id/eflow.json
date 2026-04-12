@@ -1,0 +1,31 @@
+{
+  "flow_id": "EF2026042201",
+  "company": {
+    "name": "Europe Tech Innovation SAS",
+    "cert_type": "Business Registration",
+    "cert_number": "RCS Paris B 990 088 777"
+  },
+  "account": {
+    "bank_name": "Bank of China Paris Branch",
+    "branch": "Paris Main",
+    "account_number": "FR7630004000039876543210187"
+  },
+  "operator": {
+    "name": "Zhang San",
+    "id_type": "Passport",
+    "id_number": "G55667788",
+    "expiry_date": "2024-01-15"
+  },
+  "handler": {
+    "name": "Zhang San",
+    "id_type": "Passport",
+    "id_number": "G55667788"
+  },
+  "activity": "Apply for e-Corp Internet Banking",
+  "permissions": {
+    "level": "Level_A",
+    "single_limit": 200000,
+    "daily_limit": 1000000
+  },
+  "apply_date": "2026-04-22"
+}

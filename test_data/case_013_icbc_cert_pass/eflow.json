@@ -1,0 +1,30 @@
+{
+  "flow_id": "EF2026041301",
+  "company": {
+    "name": "北京中远国际物流有限公司",
+    "cert_type": "统一社会信用代码",
+    "cert_number": "91110000351234567X"
+  },
+  "account": {
+    "bank_name": "中国工商银行",
+    "branch": "北京朝阳支行",
+    "account_number": "0200004509201234567"
+  },
+  "operator": {
+    "name": "Wang Jun",
+    "id_type": "身份证",
+    "id_number": "110101198501012345"
+  },
+  "handler": {
+    "name": "Wang Jun",
+    "id_type": "身份证",
+    "id_number": "110101198501012345"
+  },
+  "activity": "企业网银证书申请",
+  "permissions": {
+    "level": "Level_B",
+    "single_limit": 1000000,
+    "daily_limit": 5000000
+  },
+  "apply_date": "2026-04-13"
+}
