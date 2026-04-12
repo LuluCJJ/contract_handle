@@ -17,6 +17,7 @@ class LLMConfig:
     api_base: str = "http://localhost:8080/v1"
     api_key: str = "sk-placeholder"
     model_name: str = "qwen2.5-72b-instruct"
+    api_type: str = "openai"  # "openai" or "requests"
 
 
 @dataclass
@@ -76,6 +77,7 @@ def update_config(**kwargs) -> AppConfig:
     if "api_base" in kwargs: cfg.llm.api_base = kwargs["api_base"]
     if "api_key" in kwargs: cfg.llm.api_key = kwargs["api_key"]
     if "model_name" in kwargs: cfg.llm.model_name = kwargs["model_name"]
+    if "api_type" in kwargs: cfg.llm.api_type = kwargs["api_type"]
     if "ocr_model_dir" in kwargs: cfg.ocr_model_dir = kwargs["ocr_model_dir"]
     
     cfg.save()

@@ -6,6 +6,7 @@ import os
 import re
 import json
 import httpx
+import requests
 from typing import Union, Any
 from openai import OpenAI
 from backend.config import get_config
@@ -22,27 +23,60 @@ def get_llm_client() -> OpenAI:
         http_client=httpx_client
     )
 
+def _chat_openai(cfg, system_prompt: str, user_prompt: str, temperature: float) -> str:
+    """Standard OpenAI SDK call"""
+    client = get_llm_client()
+    response = client.chat.completions.create(
+        model=cfg.llm.model_name,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=temperature,
+    )
+    return response.choices[0].message.content or ""
+
+def _chat_requests(cfg, system_prompt: str, user_prompt: str) -> str:
+    """Internal requests-based call for Huawei custom LLM endpoints"""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": cfg.llm.api_key,
+    }
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+    data = {
+        "model": cfg.llm.model_name if cfg.llm.model_name != "qwen2.5-72b-instruct" else "auto",
+        "messages": messages
+    }
+    
+    # Note: Using verify=False as per Demo code requirement (verbify=False)
+    response = requests.post(
+        cfg.llm.api_base, 
+        headers=headers, 
+        json=data, 
+        verify=False,
+        timeout=300
+    )
+    response.raise_for_status()
+    return response.json()['choices'][0]['message']['content']
+
 def chat(system_prompt: str, user_prompt: str, temperature: float = 0.1) -> str:
     """
-    Send a round of conversation. Input MUST be string.
+    Send a round of conversation. Routes based on cfg.llm.api_type.
     """
     if not isinstance(user_prompt, str):
         user_prompt = str(user_prompt)
 
     cfg = get_config()
-    client = get_llm_client()
     try:
-        response = client.chat.completions.create(
-            model=cfg.llm.model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=temperature,
-        )
-        return response.choices[0].message.content or ""
+        if cfg.llm.api_type == "requests":
+            return _chat_requests(cfg, system_prompt, user_prompt)
+        else:
+            return _chat_openai(cfg, system_prompt, user_prompt, temperature)
     except Exception as e:
-        print(f"[LLM] Connection Error: {e}")
+        print(f"[LLM] Call Error ({cfg.llm.api_type}): {e}")
         return ""
 
 def chat_json(system_prompt: str, user_prompt: Any) -> dict:
