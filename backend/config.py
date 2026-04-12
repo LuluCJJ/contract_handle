@@ -42,8 +42,14 @@ class AppConfig:
     prompts: dict = field(default_factory=dict)
 
     def save(self):
+        # We EXCLUDE prompts from config.json to prevent syncing logic-heavy 
+        # prompts into environment-specific config files.
+        data = asdict(self)
+        if "prompts" in data:
+            del data["prompts"]
+            
         CONFIG_FILE.write_text(
-            json.dumps(asdict(self), ensure_ascii=False, indent=2),
+            json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
 
@@ -65,6 +71,7 @@ class AppConfig:
                 
                 cfg.ocr_model_dir = data.get("ocr_model_dir", "")
                 cfg.upload_dir = data.get("upload_dir", "uploads")
+                # cfg.prompts is deliberately NOT loaded from config.json here
             except Exception as e:
                 print(f"[Config] Warning: Failed to parse {CONFIG_FILE}: {e}")
                 # Fallback to default which is already in cfg

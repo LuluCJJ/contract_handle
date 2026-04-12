@@ -7,6 +7,7 @@ import json
 import shutil
 import datetime
 from pathlib import Path
+from typing import List
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from backend.models.schemas import AuditReport, ExtractedData, Severity, CheckResult, PersonInfo
 from backend.services import doc_parser, ocr_service, extractor, comparator, reporter
@@ -165,7 +166,7 @@ def _run_pipeline(task_id: str, eflow_path: str, doc_path: str, img_paths: list[
 async def run_audit(
     eflow_json: UploadFile = File(..., description="E-Flow JSON 文件"),
     bank_doc: UploadFile = File(..., description="银行申请表 (.doc/.docx/.pdf)"),
-    id_documents: list[UploadFile] = File(..., description="证件图片列表 (支持多选上传)"),
+    id_documents: List[UploadFile] = File(..., description="证件图片列表 (支持多选上传)"),
 ):
     """
     执行完整的预审流程

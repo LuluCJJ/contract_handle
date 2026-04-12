@@ -10,3 +10,4 @@ httpx>=0.24.0
 dirtyjson==1.0.8
 requests==2.33.1
 pymupdf>=1.27.0
+python-multipart>=0.0.9
