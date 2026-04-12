@@ -119,3 +119,42 @@ def safe_parse_json(text: str) -> dict:
             except Exception:
                 return {}
         return {}
+
+def test_connection() -> dict:
+    """测试当前 LLM 配置是否连通"""
+    cfg = get_config()
+    print(f"[LLM] Testing connection via {cfg.llm.api_type}...")
+    
+    try:
+        reply = chat(
+            system_prompt="You are a connection tester. Reply with 'OK'.",
+            user_prompt="ping",
+            temperature=0.0
+        )
+        
+        if reply and "OK" in reply.upper():
+            active_cfg = getattr(cfg.llm, cfg.llm.api_type)
+            return {
+                "status": "ok",
+                "model": active_cfg.model_name,
+                "reply": reply
+            }
+        elif reply:
+            active_cfg = getattr(cfg.llm, cfg.llm.api_type)
+            return {
+                "status": "ok",
+                "model": active_cfg.model_name,
+                "reply": reply,
+                "warning": "Received unexpected reply but connection seems open."
+            }
+        else:
+            return {
+                "status": "error",
+                "error": "Received empty response from LLM."
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }

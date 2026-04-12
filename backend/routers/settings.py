@@ -3,7 +3,7 @@
 """
 from fastapi import APIRouter
 from backend.config import get_config, update_config
-from backend.models.schemas import LLMSettingsRequest, LLMSettingsResponse
+from backend.models.schemas import LLMSettingsRequest, LLMSettingsResponse, LLMInstanceSettings
 from backend.services import llm_client
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
