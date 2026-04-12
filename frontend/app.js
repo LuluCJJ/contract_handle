@@ -83,22 +83,31 @@ btnSave.addEventListener('click', async () => {
     };
     
     try {
+        console.log("Sending save request:", body);
         const res = await fetch('/api/settings/llm', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body)
         });
-        const data = await res.json();
         
-        // Update local cache with returned data
-        llmConfigs.active_type = data.api_type;
-        llmConfigs.openai = data.openai;
-        llmConfigs.requests = data.requests;
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        
+        const data = await res.json();
+        console.log("Received settings from server:", data);
+        
+        // Update local cache safely
+        llmConfigs.active_type = data.api_type || activeType;
+        if (data.openai) llmConfigs.openai = data.openai;
+        if (data.requests) llmConfigs.requests = data.requests;
+        
+        // After save, re-fill to ensure UI is in sync with server-processed values
+        fillSettings(activeType);
         
         toast.textContent = '配置已保存';
         toast.classList.add('show');
         setTimeout(() => toast.classList.remove('show'), 2000);
     } catch(e) {
+        console.error("Save failed:", e);
         alert("保存失败: " + e.message);
     }
 });

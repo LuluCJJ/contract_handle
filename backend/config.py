@@ -105,7 +105,8 @@ def update_config(**kwargs) -> AppConfig:
     target = getattr(cfg.llm, active_type)
     
     if "api_base" in kwargs: target.api_base = kwargs["api_base"]
-    if "api_key" in kwargs: target.api_key = kwargs["api_key"]
+    if "api_key" in kwargs and kwargs["api_key"] != "sk-placeholder": 
+        target.api_key = kwargs["api_key"]
     if "model_name" in kwargs: target.model_name = kwargs["model_name"]
     
     # Global settings
