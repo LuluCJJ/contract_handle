@@ -7,16 +7,23 @@ from enum import Enum
 
 # === 配置相关 ===
 
+class LLMInstanceSettings(BaseModel):
+    api_base: str
+    api_key_masked: str
+    model_name: str
+
+
 class LLMSettingsRequest(BaseModel):
-    api_base: str = Field(..., description="OpenAI 兼容 API 端点")
+    api_type: str = "openai"
+    api_base: str = Field(..., description="API 端点")
     api_key: str = Field(..., description="API Key")
     model_name: str = Field(..., description="模型名称")
 
 
 class LLMSettingsResponse(BaseModel):
-    api_base: str
-    api_key_masked: str  # 脱敏显示
-    model_name: str
+    api_type: str
+    openai: LLMInstanceSettings
+    requests: LLMInstanceSettings
 
 
 # === 提取结果 ===

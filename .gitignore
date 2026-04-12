@@ -30,3 +30,4 @@ offline_paths.txt
 # OS specific
 .DS_Store
 Thumbs.db
+inputs/bank_template/

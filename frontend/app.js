@@ -26,39 +26,81 @@ fields.forEach(f => {
     });
 });
 
-// Setup
+// LLM Configuration State
+let llmConfigs = {
+    openai: { api_base: '', model_name: '' },
+    requests: { api_base: '', model_name: '' },
+    active_type: 'openai'
+};
+
+// Setup Modal Toggle
 btnSettings.addEventListener('click', async () => {
-    // Load config
     try {
         const res = await fetch('/api/settings/llm');
         const data = await res.json();
-        document.getElementById('cfg-base').value = data.api_base;
-        // Don't show masked key in input
-        document.getElementById('cfg-model').value = data.model_name;
-    } catch(e) {}
+        
+        // Sync to local state
+        llmConfigs.active_type = data.api_type;
+        llmConfigs.openai = data.openai;
+        llmConfigs.requests = data.requests;
+
+        // Render Active Type
+        document.getElementById('cfg-type').value = data.api_type;
+        fillSettings(data.api_type);
+
+    } catch(e) { console.error("Failed to load settings", e); }
     modal.classList.add('show');
 });
+
+// Dropdown change listener for "smooth" switching
+document.getElementById('cfg-type').addEventListener('change', (e) => {
+    const newType = e.target.value;
+    // Before switching, optionally we could temp save current inputs, 
+    // but the main requirement is to record what was PREVIOUSLY saved.
+    fillSettings(newType);
+});
+
+function fillSettings(type) {
+    const cfg = llmConfigs[type];
+    document.getElementById('cfg-base').value = cfg.api_base || '';
+    document.getElementById('cfg-model').value = cfg.model_name || '';
+    // Key is always masked from backend, clear it to invite fresh entry or keep sk-placeholder
+    document.getElementById('cfg-key').value = ""; 
+    document.getElementById('cfg-key').placeholder = cfg.api_key_masked || "sk-...";
+}
+
 btnClose.addEventListener('click', () => modal.classList.remove('show'));
 
 btnSave.addEventListener('click', async () => {
+    const activeType = document.getElementById('cfg-type').value;
+    const keyInput = document.getElementById('cfg-key').value;
+    
     const body = {
+        api_type: activeType,
         api_base: document.getElementById('cfg-base').value,
-        api_key: document.getElementById('cfg-key').value || "sk-placeholder", // If empty, backend might fail
+        api_key: keyInput || "sk-placeholder", // "sk-placeholder" means no change
         model_name: document.getElementById('cfg-model').value
     };
-    await fetch('/api/settings/llm', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)
-    });
-    // Auto-reload to reflect https addition if needed
-    fetch('/api/settings/llm').then(r => r.json()).then(data => {
-        document.getElementById('cfg-base').value = data.api_base;
-    });
-
-    toast.textContent = '配置已保存';
-    toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 2000);
+    
+    try {
+        const res = await fetch('/api/settings/llm', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        
+        // Update local cache with returned data
+        llmConfigs.active_type = data.api_type;
+        llmConfigs.openai = data.openai;
+        llmConfigs.requests = data.requests;
+        
+        toast.textContent = '配置已保存';
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2000);
+    } catch(e) {
+        alert("保存失败: " + e.message);
+    }
 });
 
 btnTest.addEventListener('click', async () => {

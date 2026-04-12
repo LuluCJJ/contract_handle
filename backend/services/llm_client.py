@@ -17,17 +17,20 @@ httpx_client = httpx.Client(verify=False, timeout=300)
 
 def get_llm_client() -> OpenAI:
     cfg = get_config()
+    # Always use the current active configuration for the SDK client
+    active_cfg = getattr(cfg.llm, cfg.llm.api_type)
     return OpenAI(
-        base_url=cfg.llm.api_base,
-        api_key=cfg.llm.api_key,
+        base_url=active_cfg.api_base,
+        api_key=active_cfg.api_key,
         http_client=httpx_client
     )
 
 def _chat_openai(cfg, system_prompt: str, user_prompt: str, temperature: float) -> str:
     """Standard OpenAI SDK call"""
     client = get_llm_client()
+    # Use config from the openai slot
     response = client.chat.completions.create(
-        model=cfg.llm.model_name,
+        model=cfg.llm.openai.model_name,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -38,22 +41,24 @@ def _chat_openai(cfg, system_prompt: str, user_prompt: str, temperature: float) 
 
 def _chat_requests(cfg, system_prompt: str, user_prompt: str) -> str:
     """Internal requests-based call for Huawei custom LLM endpoints"""
+    # Use config from the requests slot
+    target = cfg.llm.requests
     headers = {
         "Content-Type": "application/json",
-        "Authorization": cfg.llm.api_key,
+        "Authorization": target.api_key,
     }
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt}
     ]
     data = {
-        "model": cfg.llm.model_name if cfg.llm.model_name != "qwen2.5-72b-instruct" else "auto",
+        "model": target.model_name if target.model_name else "auto",
         "messages": messages
     }
     
     # Note: Using verify=False as per Demo code requirement (verbify=False)
     response = requests.post(
-        cfg.llm.api_base, 
+        target.api_base, 
         headers=headers, 
         json=data, 
         verify=False,

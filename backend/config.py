@@ -13,11 +13,25 @@ PROMPT_FILE = BASE_DIR / "backend" / "prompts" / "prompts.json"
 
 
 @dataclass
+class LLMInstanceConfig:
+    api_base: str = ""
+    api_key: str = ""
+    model_name: str = ""
+
+
+@dataclass
 class LLMConfig:
-    api_base: str = "http://localhost:8080/v1"
-    api_key: str = "sk-placeholder"
-    model_name: str = "qwen2.5-72b-instruct"
     api_type: str = "openai"  # "openai" or "requests"
+    openai: LLMInstanceConfig = field(default_factory=lambda: LLMInstanceConfig(
+        api_base="https://api.openai.com/v1",
+        api_key="sk-placeholder",
+        model_name="gpt-4o"
+    ))
+    requests: LLMInstanceConfig = field(default_factory=lambda: LLMInstanceConfig(
+        api_base="http://xiaoluban.rnd.huawei.com:80/y/llm/v1/chat/completions",
+        api_key="sk-placeholder",
+        model_name="auto"
+    ))
 
 
 @dataclass
@@ -40,7 +54,15 @@ class AppConfig:
             try:
                 data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
                 llm_data = data.get("llm", {})
-                cfg.llm = LLMConfig(**llm_data)
+                
+                # Load API Type
+                cfg.llm.api_type = llm_data.get("api_type", "openai")
+                
+                # Load Sub-configs safely
+                for key in ["openai", "requests"]:
+                    if key in llm_data:
+                        setattr(cfg.llm, key, LLMInstanceConfig(**llm_data[key]))
+                
                 cfg.ocr_model_dir = data.get("ocr_model_dir", "")
                 cfg.upload_dir = data.get("upload_dir", "uploads")
             except: pass
@@ -73,11 +95,20 @@ def get_config() -> AppConfig:
 def update_config(**kwargs) -> AppConfig:
     global _config
     cfg = get_config()
-    # Simple updates
-    if "api_base" in kwargs: cfg.llm.api_base = kwargs["api_base"]
-    if "api_key" in kwargs: cfg.llm.api_key = kwargs["api_key"]
-    if "model_name" in kwargs: cfg.llm.model_name = kwargs["model_name"]
-    if "api_type" in kwargs: cfg.llm.api_type = kwargs["api_type"]
+    
+    # Update API Type
+    if "api_type" in kwargs: 
+        cfg.llm.api_type = kwargs["api_type"]
+
+    # Update active instance config
+    active_type = cfg.llm.api_type
+    target = getattr(cfg.llm, active_type)
+    
+    if "api_base" in kwargs: target.api_base = kwargs["api_base"]
+    if "api_key" in kwargs: target.api_key = kwargs["api_key"]
+    if "model_name" in kwargs: target.model_name = kwargs["model_name"]
+    
+    # Global settings
     if "ocr_model_dir" in kwargs: cfg.ocr_model_dir = kwargs["ocr_model_dir"]
     
     cfg.save()

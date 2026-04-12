@@ -191,8 +191,15 @@
             </div>
             <div class="modal-body">
                 <div class="form-group">
+                    <label>API 协议类型</label>
+                    <select id="cfg-type" class="modern-select" style="width: 100%; height: 40px; border-radius: 6px; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); padding: 0 12px;">
+                        <option value="openai">OpenAI SDK (通用/国产大模型)</option>
+                        <option value="requests">Requests 请求 (公司内网专用)</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label>API Base URL</label>
-                    <input type="text" id="cfg-base" class="modern-input" placeholder="https://api.moonshot.cn/v1">
+                    <input type="text" id="cfg-base" class="modern-input" placeholder="https://api.openai.com/v1">
                 </div>
                 <div class="form-group">
                     <label>API Key</label>
