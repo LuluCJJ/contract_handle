@@ -61,7 +61,7 @@ document.getElementById('cfg-type').addEventListener('change', (e) => {
 });
 
 function fillSettings(type) {
-    const cfg = llmConfigs[type];
+    const cfg = llmConfigs[type] || { api_base: '', model_name: '', api_key_masked: '' };
     document.getElementById('cfg-base').value = cfg.api_base || '';
     document.getElementById('cfg-model').value = cfg.model_name || '';
     // Key is always masked from backend, clear it to invite fresh entry or keep sk-placeholder
@@ -71,64 +71,73 @@ function fillSettings(type) {
 
 btnClose.addEventListener('click', () => modal.classList.remove('show'));
 
-btnSave.addEventListener('click', async () => {
+// Save Settings Logic
+async function saveSettings(silent = false) {
     const activeType = document.getElementById('cfg-type').value;
     const keyInput = document.getElementById('cfg-key').value;
     
     const body = {
         api_type: activeType,
         api_base: document.getElementById('cfg-base').value,
-        api_key: keyInput || "sk-placeholder", // "sk-placeholder" means no change
+        api_key: keyInput || "sk-placeholder",
         model_name: document.getElementById('cfg-model').value
     };
     
     try {
-        console.log("Sending save request:", body);
         const res = await fetch('/api/settings/llm', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body)
         });
         
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         
         const data = await res.json();
-        console.log("Received settings from server:", data);
         
-        // Update local cache safely
-        llmConfigs.active_type = data.api_type || activeType;
-        if (data.openai) llmConfigs.openai = data.openai;
-        if (data.requests) llmConfigs.requests = data.requests;
+        // Sync to local state
+        llmConfigs.active_type = data.api_type;
+        llmConfigs.openai = data.openai;
+        llmConfigs.requests = data.requests;
         
-        // After save, re-fill to ensure UI is in sync with server-processed values
-        fillSettings(activeType);
-        
-        toast.textContent = '配置已保存';
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2000);
+        if (!silent) {
+            toast.textContent = '配置已保存';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+            fillSettings(activeType); // Re-sync UI with masked keys
+        }
+        return true;
     } catch(e) {
         console.error("Save failed:", e);
-        alert("保存失败: " + e.message);
+        if (!silent) alert("保存失败: " + e.message);
+        return false;
     }
-});
+}
+
+btnSave.addEventListener('click', () => saveSettings());
 
 btnTest.addEventListener('click', async () => {
-    // First save the current config
-    await btnSave.click();
-    
-    // Now test
+    // 1. Ensure current inputs are saved first (blocking)
+    btnTest.textContent = "正在保存并测试...";
+    btnTest.disabled = true;
+
     try {
-        btnTest.textContent = "测试中...";
-        btnTest.disabled = true;
+        const saved = await saveSettings(true);
+        if (!saved) throw new Error("保存配置失败，无法测试");
+
+        // 2. Now test
         const res = await fetch('/api/settings/llm/test', { method: 'POST' });
         const data = await res.json();
+        
         if(data.status === 'ok') {
-            alert(`连通成功！\n模型: ${data.model}\n大模型回复: ${data.reply}`);
+            const model = data.model || '未定义模型';
+            const reply = data.reply || '(无响应内容)';
+            const warning = data.warning ? `\n警告: ${data.warning}` : '';
+            alert(`✅ 连通成功！\n模型: ${model}\n响应: ${reply}${warning}`);
         } else {
-            alert(`连通失败！\n错误: ${data.error}`);
+            alert(`❌ 连通失败！\n错误详情: ${data.error || '未知错误'}`);
         }
     } catch(e) {
-        alert("请求错误: " + e.message);
+        alert("请求异常: " + e.message);
     } finally {
         btnTest.textContent = "连通性测试";
         btnTest.disabled = false;

@@ -65,7 +65,9 @@ class AppConfig:
                 
                 cfg.ocr_model_dir = data.get("ocr_model_dir", "")
                 cfg.upload_dir = data.get("upload_dir", "uploads")
-            except: pass
+            except Exception as e:
+                print(f"[Config] Warning: Failed to parse {CONFIG_FILE}: {e}")
+                # Fallback to default which is already in cfg
         
         # Load external prompts
         if PROMPT_FILE.exists():
