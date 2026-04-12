@@ -23,8 +23,8 @@
   "activity": "Apply for e-Corp Internet Banking Service",
   "permissions": {
     "level": "Level_A",
-    "single_limit": 100000,
-    "daily_limit": 500000
+    "single_limit": 50000,
+    "daily_limit": 200000
   },
   "apply_date": "2026-04-11"
 }
