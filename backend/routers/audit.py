@@ -8,7 +8,7 @@ import shutil
 import datetime
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from backend.models.schemas import AuditReport, ExtractedData, Severity, CheckResult
+from backend.models.schemas import AuditReport, ExtractedData, Severity, CheckResult, PersonInfo
 from backend.services import doc_parser, ocr_service, extractor, comparator, reporter
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
@@ -47,7 +47,7 @@ def _save_intermediate(output_dir: Path, step_name: str, data, is_text=False):
         print(f"[Audit] Warning: Failed to save intermediate {step_name}: {e}")
 
 
-def _run_pipeline(task_id: str, eflow_path: str, doc_path: str, img_path: str) -> dict:
+def _run_pipeline(task_id: str, eflow_path: str, doc_path: str, img_paths: list[str]) -> dict:
     """
     核心审核管线（共享逻辑），每步结果保存到 outputs/{task_id}/
     """
@@ -72,15 +72,26 @@ def _run_pipeline(task_id: str, eflow_path: str, doc_path: str, img_path: str) -
     })
     _save_intermediate(out_dir, "step2b_doc_full_text_for_llm", doc_full_text, is_text=True)
 
-    # === Step 3: OCR 证件 ===
-    ocr_result = ocr_service.extract_id_info(img_path)
+    # === Step 3: OCR 证件 (多图循环) ===
     ocr_data = ExtractedData(source="ocr")
-    ocr_data.operator.name = ocr_result.get("name", "")
-    ocr_data.operator.id_number = ocr_result.get("id_number", "")
-    ocr_data.operator.id_type = ocr_result.get("id_type", "")
-    ocr_data.operator.expiry_date = ocr_result.get("expiry_date", "")
+    all_ocr_raw = []
+    
+    for i, img_p in enumerate(img_paths):
+        print(f"[Audit] Processing OCR for image {i+1}/{len(img_paths)}: {img_p}")
+        ocr_result = ocr_service.extract_id_info(img_p)
+        all_ocr_raw.append(ocr_result)
+        
+        person = PersonInfo(
+            name=ocr_result.get("name", ""),
+            id_number=ocr_result.get("id_number", ""),
+            id_type=ocr_result.get("id_type", ""),
+            expiry_date=ocr_result.get("expiry_date", "")
+        )
+        if person.name or person.id_number:
+            ocr_data.operators.append(person)
+            
     _save_intermediate(out_dir, "step3_ocr_result", {
-        "raw_ocr": ocr_result,
+        "raw_ocr_list": all_ocr_raw,
         "structured": ocr_data.model_dump()
     })
 
@@ -118,6 +129,12 @@ def _run_pipeline(task_id: str, eflow_path: str, doc_path: str, img_path: str) -
         checks.append(CheckResult(
             check_name=f"{field}比对",
             field_name=field,
+            source_a_label=item.get("source_a_label", ""),
+            source_a_value=item.get("source_a_value", ""),
+            source_b_label=item.get("source_b_label", ""),
+            source_b_value=item.get("source_b_value", ""),
+            source_c_label=item.get("source_c_label", ""),
+            source_c_value=item.get("source_c_value", ""),
             result="MATCH" if sev == Severity.PASS else "MISMATCH",
             severity=sev,
             detail=msg
@@ -133,7 +150,7 @@ def _run_pipeline(task_id: str, eflow_path: str, doc_path: str, img_path: str) -
         "run_time": datetime.datetime.now().isoformat(),
         "doc_path": doc_path,
         "eflow_path": eflow_path,
-        "img_path": img_path,
+        "img_paths": img_paths,
     })
 
     return {
@@ -148,7 +165,7 @@ def _run_pipeline(task_id: str, eflow_path: str, doc_path: str, img_path: str) -
 async def run_audit(
     eflow_json: UploadFile = File(..., description="E-Flow JSON 文件"),
     bank_doc: UploadFile = File(..., description="银行申请表 (.doc/.docx/.pdf)"),
-    id_document: UploadFile = File(..., description="证件图片 (.jpg/.png)"),
+    id_documents: list[UploadFile] = File(..., description="证件图片列表 (支持多选上传)"),
 ):
     """
     执行完整的预审流程
@@ -163,10 +180,13 @@ async def run_audit(
         doc_ext = Path(bank_doc.filename or "doc.docx").suffix
         doc_path = _save_upload(bank_doc, task_dir, f"bank_app{doc_ext}")
 
-        img_ext = Path(id_document.filename or "id.jpg").suffix
-        img_path = _save_upload(id_document, task_dir, f"id_document{img_ext}")
+        img_paths = []
+        for i, img_f in enumerate(id_documents):
+            img_ext = Path(img_f.filename or "id.jpg").suffix
+            path = _save_upload(img_f, task_dir, f"id_document_{i}{img_ext}")
+            img_paths.append(path)
 
-        return _run_pipeline(task_id, eflow_path, doc_path, img_path)
+        return _run_pipeline(task_id, eflow_path, doc_path, img_paths)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -176,7 +196,7 @@ async def run_audit(
 async def run_from_testcase(case_id: str = Form(...)):
     """
     使用预置的测试用例运行审核。
-    从 test_data/{case_id}/ 目录读取文件。
+    从 test_data/{case_id}/ 目录读取文件。支持多证件识别。
     """
     test_dir = Path(__file__).parent.parent.parent / "test_data" / case_id
     if not test_dir.is_dir():
@@ -184,22 +204,25 @@ async def run_from_testcase(case_id: str = Form(...)):
 
     eflow_path = test_dir / "eflow.json"
     doc_path = None
-    img_path = None
+    img_paths = []
 
     for f in test_dir.iterdir():
         if f.suffix in (".doc", ".docx", ".pdf") and f.stem != "eflow":
             doc_path = f
-        if f.suffix in (".jpg", ".jpeg", ".png"):
-            img_path = f
+        if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".pdf") and "bank_app" not in f.name:
+            # 排除掉作为申请表的 pdf，剩下的 pdf/图片视为证件
+            if f.suffix.lower() == ".pdf" and doc_path and f == doc_path:
+                continue
+            img_paths.append(str(f))
 
     if not eflow_path.exists():
         raise HTTPException(status_code=404, detail="缺少 eflow.json")
     if not doc_path:
         raise HTTPException(status_code=404, detail="缺少银行申请文档 (.doc/.docx/.pdf)")
-    if not img_path:
-        raise HTTPException(status_code=404, detail="缺少证件图片")
+    if not img_paths:
+        raise HTTPException(status_code=404, detail="缺少证件图片/PDF")
 
-    return _run_pipeline(case_id, str(eflow_path), str(doc_path), str(img_path))
+    return _run_pipeline(case_id, str(eflow_path), str(doc_path), img_paths)
 
 
 @router.get("/testcases")
@@ -309,33 +332,40 @@ def _parse_eflow(raw: dict) -> ExtractedData:
     data.account.account_number = first_acc.get("account_number") or first_acc.get("number") or raw.get("account_number", "")
 
     # --- 3. 经办人/操作员 (Operator) ---
-    # 逻辑同账号：支持列表降维
-    ops = raw.get("operator") or raw.get("operators") or {}
-    if isinstance(ops, list) and len(ops) > 0:
-        first_op = ops[0]
-    else:
-        first_op = ops if isinstance(ops, dict) else {}
+    raw_ops = raw.get("operator") or raw.get("operators") or []
+    if isinstance(raw_ops, dict): raw_ops = [raw_ops]
+    elif not isinstance(raw_ops, list): raw_ops = []
+    
+    # 兼容单个扁平字段情况 (如 eflow 直接定义 applicant_name)
+    if not raw_ops and raw.get("applicant_name"):
+        raw_ops = [{"name": raw.get("applicant_name"), "id_number": raw.get("id_number"), "id_type": raw.get("id_type")}]
 
-    data.operator.name = first_op.get("name") or raw.get("applicant_name", "")
-    data.operator.id_type = first_op.get("id_type") or raw.get("id_type", "")
-    data.operator.id_number = first_op.get("id_number") or raw.get("id_number", "")
-    data.operator.expiry_date = first_op.get("expiry_date", "")
-    data.operator.role = first_op.get("role", "")
-    data.operator.phone = first_op.get("phone") or first_op.get("mobile_phone", "")
+    for op in raw_ops:
+        if not isinstance(op, dict): continue
+        data.operators.append(PersonInfo(
+            name=op.get("name") or op.get("applicant_name") or "",
+            id_type=op.get("id_type") or "",
+            id_number=op.get("id_number") or "",
+            expiry_date=op.get("expiry_date") or "",
+            role=op.get("role") or "",
+            phone=op.get("phone") or op.get("mobile_phone") or ""
+        ))
 
     # --- 3.1 指派人/开户人 (Handler) ---
-    hds = raw.get("handler") or raw.get("handlers") or {}
-    if isinstance(hds, list) and len(hds) > 0:
-        first_hd = hds[0]
-    else:
-        first_hd = hds if isinstance(hds, dict) else {}
+    raw_hds = raw.get("handler") or raw.get("handlers") or []
+    if isinstance(raw_hds, dict): raw_hds = [raw_hds]
+    elif not isinstance(raw_hds, list): raw_hds = []
 
-    data.handler.name = first_hd.get("name", "")
-    data.handler.id_type = first_hd.get("id_type", "")
-    data.handler.id_number = first_hd.get("id_number", "")
-    data.handler.expiry_date = first_hd.get("expiry_date", "")
-    data.handler.role = first_hd.get("role", "")
-    data.handler.phone = first_hd.get("phone") or first_hd.get("mobile_phone", "")
+    for hd in raw_hds:
+        if not isinstance(hd, dict): continue
+        data.handlers.append(PersonInfo(
+            name=hd.get("name", ""),
+            id_type=hd.get("id_type", ""),
+            id_number=hd.get("id_number", ""),
+            expiry_date=hd.get("expiry_date", ""),
+            role=hd.get("role", ""),
+            phone=hd.get("phone") or hd.get("mobile_phone") or ""
+        ))
 
     # --- 4. 权限与限额 (Permissions) ---
     def _parse_limit(val):

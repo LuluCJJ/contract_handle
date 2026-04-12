@@ -1,0 +1,47 @@
+{
+  "flow_id": "EF2026041501",
+  "company": {
+    "name": "上海星辰国际贸易有限公司",
+    "cert_type": "统一社会信用代码",
+    "cert_number": "91310000567890ABCD",
+    "legal_representative": "Wang Wei",
+    "phone": "021-12345678",
+    "industry": "一般贸易"
+  },
+  "account": {
+    "bank_name": "中国银行",
+    "branch": "上海浦东支行",
+    "account_number": "454676800100123456"
+  },
+  "operators": [
+    {
+      "name": "Liu Yang",
+      "id_type": "身份证",
+      "id_number": "310101199001011234",
+      "phone": "13800138000",
+      "role": "首席操作员"
+    },
+    {
+      "name": "Zhang San",
+      "id_type": "身份证",
+      "id_number": "420101198505051234",
+      "phone": "13900139000",
+      "role": "备用操作员"
+    }
+  ],
+  "handlers": [
+    {
+      "name": "Wang Wei",
+      "id_type": "身份证",
+      "id_number": "110101197001019999",
+      "role": "法人授权人"
+    }
+  ],
+  "activity": "开通企业网上银行并设置多级操作权限",
+  "permissions": {
+    "level": "Level_Multi",
+    "single_limit": 500000,
+    "daily_limit": 2000000
+  },
+  "apply_date": "2026-04-15"
+}

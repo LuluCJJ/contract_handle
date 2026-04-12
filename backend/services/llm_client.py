@@ -40,6 +40,26 @@ def _chat_openai(cfg, system_prompt: str, user_prompt: str, temperature: float) 
     )
     return response.choices[0].message.content or ""
 
+def _chat_vision_openai(cfg, system_prompt: str, base64_image: str, temperature: float) -> str:
+    """OpenAI SDK Call with Vision capabilities"""
+    client = get_llm_client()
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Please extract the requested information from this image."},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+            ]
+        }
+    ]
+    response = client.chat.completions.create(
+        model=cfg.llm.openai.model_name,
+        messages=messages,
+        temperature=temperature,
+    )
+    return response.choices[0].message.content or ""
+
 def _chat_requests(cfg, system_prompt: str, user_prompt: str) -> str:
     """Internal requests-based call for local/custom LLM endpoints"""
     target = cfg.llm.requests
@@ -89,6 +109,36 @@ def _chat_requests(cfg, system_prompt: str, user_prompt: str) -> str:
     except Exception as e:
         print(f"[LLM] CRITICAL ERROR in _chat_requests: {str(e)}")
         return f"Exception: {str(e)}"
+
+def _chat_vision_requests(cfg, system_prompt: str, base64_image: str) -> str:
+    """Internal requests-based call with Vision for local/custom LLM API"""
+    target = cfg.llm.requests
+    auth_header = target.api_key
+    if auth_header.startswith("sk-") and not auth_header.startswith("Bearer "):
+        auth_header = f"Bearer {auth_header}"
+
+    headers = {"Content-Type": "application/json", "Authorization": auth_header}
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Please extract the requested information from this image."},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+            ]
+        }
+    ]
+    data = {"model": target.model_name if target.model_name else "auto", "messages": messages}
+    
+    try:
+        response = requests.post(target.api_base, headers=headers, json=data, verify=False, timeout=300, proxies={"http": None, "https": None})
+        if response.status_code != 200:
+            print(f"[LLM] Vision HTTP ERROR {response.status_code}: {response.text[:500]}")
+            return ""
+        return response.json().get('choices', [{}])[0].get('message', {}).get('content', '')
+    except Exception as e:
+        print(f"[LLM] Vision CRITICAL ERROR: {str(e)}")
+        return ""
 
 def chat(system_prompt: str, user_prompt: str, temperature: float = 0.1) -> str:
     """
@@ -142,6 +192,23 @@ def safe_parse_json(text: str) -> dict:
             except Exception:
                 return {}
         return {}
+
+def chat_vision_json(system_prompt: str, base64_image: str) -> dict:
+    """
+    Send a vision request and parse response as JSON.
+    """
+    cfg = get_config()
+    json_instruction = "\n\nReturn ONLY raw JSON. No markdown."
+    full_prompt = system_prompt + json_instruction
+    try:
+        if cfg.llm.api_type == "requests":
+            raw_resp = _chat_vision_requests(cfg, full_prompt, base64_image)
+        else:
+            raw_resp = _chat_vision_openai(cfg, full_prompt, base64_image, temperature=0.0)
+    except Exception as e:
+        print(f"[LLM Vision] Call Error ({cfg.llm.api_type}): {e}")
+        return {}
+    return safe_parse_json(raw_resp)
 
 def test_connection() -> dict:
     """测试当前 LLM 配置是否连通"""

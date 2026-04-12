@@ -64,8 +64,8 @@ class ExtractedData(BaseModel):
     """从某个数据源提取的统一结构"""
     source: str = ""  # "eflow" / "word" / "ocr"
     company: CompanyInfo = Field(default_factory=CompanyInfo)
-    operator: PersonInfo = Field(default_factory=PersonInfo)
-    handler: PersonInfo = Field(default_factory=PersonInfo)
+    operators: list[PersonInfo] = Field(default_factory=list)
+    handlers: list[PersonInfo] = Field(default_factory=list)
     account: AccountInfo = Field(default_factory=AccountInfo)
     permissions: PermissionInfo = Field(default_factory=PermissionInfo)
     activity: str = ""

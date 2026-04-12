@@ -1,0 +1,36 @@
+import os
+import base64
+from backend.services.llm_client import chat_vision_json
+from backend.config import get_config
+
+def encode_image(image_path: str) -> str:
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+def extract_id_info_vision(image_path: str) -> dict:
+    """
+    Use standard LLM Vision capacities to extract ID card/Passport data.
+    """
+    if not os.path.exists(image_path):
+        return {"name": "", "id_number": "", "id_type": "unknown"}
+    
+    cfg = get_config()
+    system_prompt = cfg.get_prompt("id_extraction_fallback")
+    if not system_prompt:
+        system_prompt = "Extract info from image, return JSON only: name, id_number, id_type, expiry_date."
+
+    try:
+        base64_img = encode_image(image_path)
+        print(f"[Vision OCR] Sending request for {image_path} via LLM Vision...")
+        result = chat_vision_json(system_prompt, base64_img)
+        
+        # Normalize the result to ensure required keys exist
+        return {
+            "name": result.get("name", ""),
+            "id_number": result.get("id_number", ""),
+            "id_type": result.get("id_type", "unknown"),
+            "expiry_date": result.get("expiry_date", "")
+        }
+    except Exception as e:
+        print(f"[Vision OCR] Error: {e}")
+        return {"name": "", "id_number": "", "id_type": "unknown"}

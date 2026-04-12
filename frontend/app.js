@@ -16,7 +16,10 @@ fields.forEach(f => {
     
     zone.addEventListener('click', () => input.click());
     input.addEventListener('change', (e) => {
-        if(e.target.files.length > 0) {
+        if(e.target.files.length > 1) {
+            name.textContent = `已选择 ${e.target.files.length} 个文件`;
+            zone.classList.add('has-file');
+        } else if(e.target.files.length === 1) {
             name.textContent = e.target.files[0].name;
             zone.classList.add('has-file');
         } else {
@@ -184,15 +187,17 @@ form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const eflowF = document.getElementById('file-eflow').files[0];
     const bankF = document.getElementById('file-bank').files[0];
-    const idF = document.getElementById('file-id').files[0];
+    const idFiles = document.getElementById('file-id').files;
     
-    if(!eflowF || !bankF || !idF) return alert('必须上传所有文件');
+    if(!eflowF || !bankF || idFiles.length === 0) return alert('必须上传所有文件');
     
     showLoading();
     const fd = new FormData();
     fd.append('eflow_json', eflowF);
     fd.append('bank_doc', bankF);
-    fd.append('id_document', idF);
+    for(let i=0; i<idFiles.length; i++) {
+        fd.append('id_documents', idFiles[i]);
+    }
     
     try {
         const res = await fetch('/api/audit/run', { method: 'POST', body: fd });
@@ -309,10 +314,23 @@ function renderColumn(id, extData) {
     if(extData.company.cert_number) addkv('单位统一码', extData.company.cert_number);
     if(extData.company.legal_representative) addkv('法定代表人', extData.company.legal_representative);
     
-    if(extData.handler && extData.handler.name) addkv('指派人姓名', extData.handler.name);
-    if(extData.operator.name) addkv('操作员姓名', extData.operator.name);
-    
-    if(extData.operator.id_number) addkv('操作证件', `${extData.operator.id_type || ''} ${extData.operator.id_number}`);
+    // 渲染指派人 (可能有多个)
+    if(extData.handlers && extData.handlers.length > 0) {
+        extData.handlers.forEach((h, i) => {
+            const suffix = extData.handlers.length > 1 ? ` (人${i+1})` : '';
+            addkv(`指派人${suffix}`, h.name);
+        });
+    }
+
+    // 渲染操作员 (可能有多个)
+    if(extData.operators && extData.operators.length > 0) {
+        extData.operators.forEach((op, i) => {
+            const suffix = extData.operators.length > 1 ? ` (人${i+1})` : '';
+            addkv(`操作员${suffix}`, op.name);
+            if(op.id_number) addkv(`操作证件${suffix}`, `${op.id_type || ''} ${op.id_number}`);
+        });
+    }
+
     if(extData.account.account_number) addkv('业务账号', extData.account.account_number);
     
     if(extData.permissions && (extData.permissions.level || extData.permissions.single_limit)) {
