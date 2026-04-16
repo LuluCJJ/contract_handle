@@ -12,12 +12,12 @@ def extract_id_info_vision(image_path: str) -> dict:
     Use standard LLM Vision capacities to extract ID card/Passport data.
     """
     if not os.path.exists(image_path):
-        return {"name": "", "id_number": "", "id_type": "unknown"}
+        return {"name": "", "id_number": ""}
     
     cfg = get_config()
     system_prompt = cfg.get_prompt("id_extraction_fallback")
     if not system_prompt:
-        system_prompt = "Extract info from image, return JSON only: name, id_number, id_type, expiry_date."
+        system_prompt = "Extract info from image, return JSON only: name, id_number."
 
     try:
         base64_img = encode_image(image_path)
@@ -28,7 +28,6 @@ def extract_id_info_vision(image_path: str) -> dict:
         return {
             "name": result.get("name", ""),
             "id_number": result.get("id_number", ""),
-            "id_type": result.get("id_type", "unknown"),
             "expiry_date": result.get("expiry_date", "")
         }
     except Exception as e:
@@ -37,4 +36,4 @@ def extract_id_info_vision(image_path: str) -> dict:
         # Special handling for non-vision models (e.g. moonshot)
         if "Image input not supported" in error_msg or "400" in error_msg:
              print("[Vision OCR] Active model doesn't support Vision. Consider enabling local PaddleOCR or switching to GPT-4o/Claude-3.5-V.")
-        return {"name": "", "id_number": "", "id_type": "unknown", "error": error_msg}
+        return {"name": "", "id_number": "", "error": error_msg}

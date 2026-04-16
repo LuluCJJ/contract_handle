@@ -18,23 +18,76 @@
         .result-summary.risk-LOW_RISK { border-left: 6px solid var(--risk-l); background: #eef2ff; }
         .result-summary.risk-ZERO_RISK { border-left: 6px solid var(--risk-z); background: #f0fdf4; }
 
-        .aggregator-summary { padding: 20px; font-size: 15px; line-height: 1.8; color: #1e293b; background: white; border-radius: 8px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
-        
-        .accordion-item { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
-        .acc-header { padding: 10px 15px; background: #f1f5f9; cursor: pointer; display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
-        .acc-content { padding: 12px; display: none; background: white; font-size: 12px; }
-        .accordion-item.open .acc-content { display: block; }
+        .aggregator-summary { padding: 20px; font-size: 15px; line-height: 1.8; color: #1e293b; background: white; border-radius: 8px; margin-bottom: 12px; border: 1px solid #e2e8f0; font-weight: 600; }
+        .insight-card { display:flex; align-items:flex-start; gap:10px; padding:9px 14px; margin-bottom:7px; border-left:3px solid #f59e0b; background:#fffbeb; border-radius:0 6px 6px 0; font-size:13px; color:#374151; line-height:1.5; }
+        .insight-icon { color:#f59e0b; flex-shrink:0; font-size:14px; margin-top:2px; }
 
-        .check-cluster { margin-bottom: 30px; }
-        .cluster-title { font-size: 14px; font-weight: 700; color: #334155; padding-bottom: 8px; border-bottom: 2px solid #cbd5e1; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
-        
-        .ext-card { padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; position: relative; }
-        .ext-card:hover { border-color: var(--audit-blue); background: #f0f7ff; }
-        .ext-card-tag { position: absolute; top: 8px; right: 8px; font-size: 10px; color: #94a3b8; }
+        /* 文档手风琴 */
+        .doc-accordion-item { border:1px solid #e2e8f0; border-radius:8px; margin-bottom:8px; overflow:hidden; }
+        .doc-acc-header { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:#f8fafc; cursor:pointer; gap:8px; user-select:none; }
+        .doc-acc-header:hover { background:#f1f5f9; }
+        .doc-acc-content { display:none; padding:12px; border-top:1px solid #e2e8f0; }
+        .doc-accordion-item.open .doc-acc-content { display:block; }
+        .doc-arrow { color:#94a3b8; transition:transform 0.2s; }
+        .doc-accordion-item.open .doc-arrow { transform:rotate(180deg); }
+        .doc-filename { font-weight:600; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:160px; }
+        .doc-type-tag { background:#e2e8f0; color:#475569; font-size:10px; padding:2px 7px; border-radius:10px; flex-shrink:0; }
+        .doc-kv-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+        .doc-kv-key { font-size:11px; color:#94a3b8; }
+        .doc-kv-val { font-size:12px; font-weight:600; color:#1e293b; word-break:break-all; }
+        .btn-view-raw { width:100%; padding:6px; border:1px dashed #cbd5e1; border-radius:6px; background:transparent; cursor:pointer; font-size:12px; color:#64748b; }
+        .btn-view-raw:hover { border-color:#2563eb; color:#2563eb; }
 
-        .full-text-modal { position: fixed; top: 0; left: 0; width:100%; height:100%; background:rgba(0,0,0,0.6); display:none; z-index:3000; align-items:center; justify-content:center; }
-        .modal-inner { background:white; width:80%; max-height:80vh; border-radius:12px; display:flex; flex-direction:column; }
-        .modal-body-scroll { padding:24px; overflow-y:auto; font-family: monospace; white-space: pre-wrap; background: #f8fafc; font-size: 13px; }
+        /* 徽章 */
+        .badge-critical { background:#fee2e2; color:#dc2626; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:700; }
+        .badge-warning { background:#fef3c7; color:#d97706; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:700; }
+        .badge-info { background:#e0e7ff; color:#4f46e5; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:700; }
+        .badge-pass { background:#dcfce7; color:#16a34a; font-size:11px; padding:2px 8px; border-radius:10px; font-weight:700; }
+
+        /* EFlow & Document Unified Accordion Styles */
+        .accordion-item { border:1px solid #e2e8f0; border-radius:8px; margin-bottom:10px; background:#fff; overflow:hidden; transition: box-shadow 0.2s; }
+        .accordion-item:hover { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .acc-header { display:flex; justify-content:space-between; align-items:center; padding:12px 14px; background:#f8fafc; cursor:pointer; gap:8px; user-select:none; border-bottom:1px solid transparent; }
+        .acc-header:hover { background:#f1f5f9; }
+        .acc-header i.ri-arrow-down-s-line { color:#94a3b8; transition:transform 0.2s; }
+        .accordion-item.open .acc-header { border-bottom-color:#e2e8f0; }
+        .accordion-item.open .ri-arrow-down-s-line { transform:rotate(180deg); }
+        .acc-content { display:none; padding:14px; }
+        .accordion-item.open .acc-content { display:block; }
+        .acc-title { font-weight:600; font-size:13px; color:#1e293b; display:flex; align-items:center; gap:8px; }
+        .acc-title i { color:var(--audit-blue); font-size:15px; }
+
+        /* 两级折叠审计明细 */
+        .doc-check-panel { border:1px solid #e2e8f0; border-radius:10px; margin-bottom:12px; overflow:hidden; }
+        .doc-check-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:#f1f5f9; cursor:pointer; user-select:none; }
+        .doc-check-header:hover { background:#e8eef5; }
+        .doc-check-content { display:none; padding:12px; }
+        .doc-check-panel.open .doc-check-content { display:block; }
+        .cat-accordion-item { border:1px solid #f1f5f9; border-radius:6px; margin-bottom:6px; overflow:hidden; }
+        .cat-acc-header { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:#f8fafc; cursor:pointer; font-size:13px; font-weight:600; user-select:none; }
+        .cat-acc-header:hover { background:#f1f5f9; }
+        .cat-acc-content { display:none; padding:8px 4px; }
+        .cat-accordion-item.open .cat-acc-content { display:block; }
+        .check-item { padding:10px 12px; margin-bottom:6px; border-radius:6px; border-left:3px solid #e2e8f0; background:#fafafa; }
+        .check-item.sev-critical { border-left-color:#ef4444; background:#fef2f2; }
+        .check-item.sev-warning { border-left-color:#f59e0b; background:#fffbeb; }
+        .check-item.sev-info { border-left-color:#6366f1; background:#eef2ff; }
+        .check-item.sev-pass { border-left-color:#10b981; background:#f0fdf4; }
+        .check-item-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+        .check-item-name { font-weight:600; font-size:13px; }
+        .sev-badge { font-size:10px; padding:2px 6px; border-radius:4px; font-weight:700; }
+        .sev-badge-critical { background:#fee2e2; color:#dc2626; }
+        .sev-badge-warning { background:#fef3c7; color:#d97706; }
+        .sev-badge-info { background:#e0e7ff; color:#4f46e5; }
+        .sev-badge-pass { background:#dcfce7; color:#16a34a; }
+        .check-item-detail { font-size:12px; color:#475569; margin:4px 0; line-height:1.5; }
+        .check-diff-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px; background:#f8fafc; padding:8px; border-radius:4px; }
+        .diff-label { font-size:10px; color:#94a3b8; display:block; }
+        .diff-val { font-size:12px; font-weight:600; color:#1e293b; word-break:break-all; }
+        .diff-mismatch { color:#dc2626; }
+        .pass-toggle { width:100%; padding:5px; border:1px dashed #d1fae5; border-radius:4px; background:transparent; cursor:pointer; font-size:11px; color:#16a34a; margin-top:4px; }
+        .pass-toggle:hover { background:#f0fdf4; }
+        .pass-items.hidden { display:none; }
     </style>
 </head>
 <body>
@@ -123,6 +176,12 @@
         </div>
     </div>
 
+    <!-- Loading 遮罩层 (必须存在，app.js 依赖此元素) -->
+    <div class='loading-overlay' id='loading-overlay'>
+        <div class='scanner'></div>
+        <p>正在跨文档综合研判中，请稍候...</p>
+    </div>
+
     <!-- 设置模态框 -->
     <div class="modal" id="settings-modal">
         <div class="modal-content glass-card">
@@ -159,6 +218,6 @@
     </div>
 
     <!-- 图表和脚本 -->
-    <script src="/static/app.js?v=20260416_2020"></script>
+    <script src="/static/app.js?v=20260416_2350"></script>
 </body>
 </html>

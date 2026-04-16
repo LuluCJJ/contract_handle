@@ -5,9 +5,10 @@ import os
 import uuid
 import json
 import shutil
+import traceback
 from datetime import datetime, date
 from pathlib import Path
-from typing import List, Annotated
+from typing import List, Annotated, Optional
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -15,7 +16,7 @@ from fastapi.encoders import jsonable_encoder
 from backend.models.schemas import (
     AuditReport, Severity, CheckResult, PersonInfo, EFlowData, 
     DocExtractedData, DocAnalysisReport, UserPermission, PermissionScope, 
-    MediaInfo, CompanyInfo, PlatformInfo
+    MediaInfo, CompanyInfo, PlatformInfo, OverallStatus
 )
 from backend.services import doc_parser, ocr_service, extractor, comparator, reporter, hard_comparator
 
@@ -66,33 +67,44 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
     """
     核心审核管线 V3 - 支持动态数量文本与图片附件
     """
+    import time
+    timing = {}
+    t_start = time.time()
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = OUTPUTS_BASE / f"{timestamp}_{task_id}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # === 1. 构建金标准 (E-Flow) ===
+    t0 = time.time()
     with open(eflow_path, "r", encoding="utf-8") as f:
         eflow_raw = json.load(f)
     eflow = _parse_eflow_v3(eflow_raw)
     _save_intermediate(out_dir, "m1_eflow", eflow.model_dump())
+    timing["M1_eflow_parse_ms"] = round((time.time() - t0) * 1000)
 
     document_reports = []
 
     # === 2. 逐件处理文档 (Word/PDF) ===
+    timing["M2_docs"] = []
     for dp in docs_paths:
         fname = Path(dp).name
+        t0 = time.time()
         parsed_doc = doc_parser.parse_document(dp)
         doc_full_text = doc_parser.get_full_text_for_llm(parsed_doc)
-        
+        t_parse = time.time()
+
         # 2.1 泛化抽取
         extracted = extractor.extract_information(doc_full_text, filename=fname, doc_type="word")
-        
+        t_extract = time.time()
+
         # 2.2 硬比对
         h_checks = hard_comparator.run_hard_comparisons(eflow, extracted)
-        
+
         # 2.3 语义分析
         s_checks = comparator.run_semantic_analyzer(eflow, extracted)
-        
+        t_semantic = time.time()
+
         dr = DocAnalysisReport(
             doc_name=fname,
             doc_type="word",
@@ -102,17 +114,27 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         )
         document_reports.append(dr)
         _save_intermediate(out_dir, f"m2_doc_{fname}", dr.model_dump())
+        timing["M2_docs"].append({
+            "file": fname,
+            "parse_ms":    round((t_parse   - t0)       * 1000),
+            "extract_ms":  round((t_extract - t_parse)  * 1000),
+            "semantic_ms": round((t_semantic - t_extract) * 1000),
+            "total_ms":    round((t_semantic - t0)       * 1000),
+        })
 
 
     # === 3. 逐件处理证件 (OCR - 稳健串行模式) ===
+    timing["M3_ocr"] = []
     for ip in img_paths:
         fname = Path(ip).name
+        t0 = time.time()
         ocr_result = ocr_service.extract_id_info(ip)
+        t_ocr = time.time()
+        timing["M3_ocr"].append({"file": fname, "ocr_ms": round((t_ocr - t0) * 1000)})
         
         person = PersonInfo(
             name=ocr_result.get("name", ""),
             id_number=ocr_result.get("id_number", ""),
-            id_type=ocr_result.get("id_type", ""),
             expiry_date=ocr_result.get("expiry_date", "")
         )
         extracted = DocExtractedData(
@@ -123,7 +145,10 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         extracted.raw_text = json.dumps(ocr_result, ensure_ascii=False)
         
         h_checks = hard_comparator.run_hard_comparisons(eflow, extracted)
-        curr = date.today().strftime("%Y-%m-%d")
+        
+        # 恢复：证件过期自动核查
+        from datetime import date as dt_date
+        curr = dt_date.today().strftime("%Y-%m-%d")
         if person.expiry_date and person.expiry_date <= curr:
             h_checks.append(CheckResult(
                 check_name="证件有效期核查", field_name="expiry_date",
@@ -143,35 +168,38 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         _save_intermediate(out_dir, f"m3_ocr_{dr.doc_name}", dr.model_dump())
 
     # === 4. 交叉检验 (Cross Validation) ===
-    # 查找各个提取报告间的矛盾，比如文档1说是Token，文档2说是U盾
     cross_validator_checks = []
-    # 留作后续功能延展...可以纯代码写，也可以给一个特定的 LLM Cross Checker
 
     # === 5. 全局智脑 (Global Aggregator) ===
+    t0 = time.time()
     all_reps_dump = [dr.model_dump() for dr in document_reports]
     global_summary = comparator.generate_global_summary(eflow, all_reps_dump, cross_validator_checks)
+    timing["M5_global_summary_ms"] = round((time.time() - t0) * 1000)
+    timing["M_total_ms"] = round((time.time() - t_start) * 1000)
     _save_intermediate(out_dir, "m5_llm_summary", global_summary)
+    _save_intermediate(out_dir, "m0_timing", timing)
+    print(f"[Timing] 总耗时 {timing['M_total_ms']}ms | EFlow={timing['M1_eflow_parse_ms']}ms | GlobalSummary={timing['M5_global_summary_ms']}ms")
 
     # === 6. 报告封装 (V15.6 逻辑) ===
     # 汇总计算综述
     has_critical = any(c.severity == Severity.CRITICAL for c in cross_validator_checks)
     for dr in document_reports:
-        if any(c.severity == Severity.CRITICAL for c in dr.hard_checks + dr.semantic_checks):
+        if any(c.severity == Severity.CRITICAL for c in (dr.hard_checks + dr.semantic_checks)):
             has_critical = True
     
     has_warning = any(c.severity == Severity.WARNING for c in cross_validator_checks)
     for dr in document_reports:
-        if any(c.severity == Severity.WARNING for c in dr.hard_checks + dr.semantic_checks):
+        if any(c.severity == Severity.WARNING for c in (dr.hard_checks + dr.semantic_checks)):
             has_warning = True
 
-    status = OverallStatus.ZERO_RISK
-    if has_critical: status = OverallStatus.HIGH_RISK
-    elif has_warning: status = OverallStatus.MED_RISK
-    elif len(document_reports) > 0: status = OverallStatus.LOW_RISK
+    final_status = OverallStatus.ZERO_RISK
+    if has_critical: final_status = OverallStatus.HIGH_RISK
+    elif has_warning: final_status = OverallStatus.MED_RISK
+    elif len(document_reports) > 0: final_status = OverallStatus.LOW_RISK
 
     final_report = AuditReport(
         task_id=task_id,
-        overall_status=status,
+        overall_status=final_status,
         eflow_data=eflow,
         document_reports=document_reports,
         cross_validation_checks=cross_validator_checks,
@@ -179,7 +207,12 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
     )
     _save_intermediate(out_dir, "m6_final_report", final_report.model_dump())
 
-    return jsonable_encoder(final_report)
+    # 关键修复：显式进行 model_dump() 避免 Pydantic 500 序列化报错
+    return jsonable_encoder({
+        "status": "completed",
+        "task_id": task_id,
+        "report": final_report.model_dump()
+    })
 
 @router.get("/testcases")
 async def list_testcases():

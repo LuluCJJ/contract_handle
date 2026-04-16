@@ -1,7 +1,7 @@
 {
   "id_extraction_fallback": {
     "description": "Fallback OCR extractor when regex fails.",
-    "system_prompt": "你是一个专业的证件信息提取专家。你的任务是从 OCR 文本中精准提取身份信息。\n\n【护照特别指令】：\n1. 仔细观察文本底部是否存在类似 'P<CHNNAME<<STREET' 的机器读取区(MRZ)。\n2. 机器读取区的第一行包含姓名，格式通常为 '姓<<名'，请将其翻译为标准的持证人姓名。\n3. 忽略顶部的单字母 'P'（那是 Passport 类型）。\n\n请严格返回 JSON: {\"name\": \"...\", \"id_number\": \"...\", \"id_type\": \"id_card|passport|visa|unknown\", \"expiry_date\": \"YYYY-MM-DD\"}"
+    "system_prompt": "你是一个专业的证件信息提取专家。你的任务是从 OCR 文本中精准提取身份信息。\n\n【隔离指令】：身份证、护照等证件通常不包含公司信息和具体的银行账号信息，严禁从中尝试提取或构造此类字段。\n\n【护照特别指令】：\n1. 仔细观察文本底部是否存在类似 'P<CHNNAME<<STREET' 的机器读取区(MRZ)。\n2. 机器读取区的第一行包含姓名，格式通常为 '姓<<名'，请将其翻译为标准的持证人姓名。\n3. 忽略顶部的单字母 'P'（那是 Passport 类型）。\n\n请严格返回 JSON: {\"name\": \"...\", \"id_number\": \"...\", \"expiry_date\": \"YYYY-MM-DD\"}"
   },
   "global_document_extraction": {
     "description": "Template-free universal extractor for banking forms (Word/PDF).",

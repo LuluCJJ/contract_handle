@@ -1,6 +1,10 @@
-import urllib.request, json, urllib.parse
+import urllib.request, json, urllib.parse, sys
+import io
 
-data = urllib.parse.urlencode({'case_id': 'case_001_pass'}).encode('utf-8')
+# 解决 Windows 终端打印特殊字符 (如 ☑) 崩溃的问题
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+data = urllib.parse.urlencode({'case_id': 'case_014_boc_domestic_pass'}).encode('utf-8')
 req = urllib.request.Request('http://localhost:8000/api/audit/run-from-testcase', data=data)
 r = urllib.request.urlopen(req)
 

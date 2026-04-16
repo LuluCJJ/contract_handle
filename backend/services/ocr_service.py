@@ -163,7 +163,7 @@ def _parse_id_card(all_text: list) -> dict:
         for t in all_text:
             m = re.search(r'\d{17}[\dXx]', t)
             if m: id_n = m.group(); break
-        if id_n: return {"name": name, "id_number": id_n, "id_type": "id_card"}
+        if id_n: return {"name": name, "id_number": id_n}
     return {}
 
 def _parse_mrz(all_text: list) -> dict:
@@ -179,7 +179,7 @@ def _parse_mrz(all_text: list) -> dict:
             id_n = m_line2.group(1).replace("<", "")
             raw_expiry = m_line2.group(2)
             if raw_expiry.isdigit():
-                # Convert YYMMDD to YYYY-MM-DD (assume 20xx for expiry)
+                # Convert YYMMDD to YYYY-MM-DD
                 expiry_date = f"20{raw_expiry[0:2]}-{raw_expiry[2:4]}-{raw_expiry[4:6]}"
         
         # Line 1 extraction
@@ -192,7 +192,7 @@ def _parse_mrz(all_text: list) -> dict:
                     name = f"{surname_raw} {given}".strip()
             except: pass
     if id_n:
-        return {"name": name, "id_number": id_n, "id_type": "passport", "expiry_date": expiry_date}
+        return {"name": name, "id_number": id_n, "expiry_date": expiry_date}
     return {}
 
 from backend.services.vision_ocr import extract_id_info_vision
@@ -215,7 +215,7 @@ def extract_id_info(image_path: str) -> dict:
         return extract_id_info_vision(image_path)
 
     if not r or not r[0]:
-        return {"name": "", "id_number": "", "id_type": "unknown", "all_text": []}
+        return {"name": "", "id_number": "", "all_text": []}
 
     texts = []
     res_obj = r[0]
@@ -256,4 +256,4 @@ def extract_id_info(image_path: str) -> dict:
         except Exception as e:
             print(f"[OCR] LLM Normalization failed: {e}")
 
-    return {"name": "", "id_number": "", "id_type": "unknown", "all_text": all_t}
+    return {"name": "", "id_number": "", "all_text": all_t}
