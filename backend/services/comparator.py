@@ -39,11 +39,15 @@ def run_semantic_analyzer(eflow: EFlowData, doc_ext: DocExtractedData) -> list[C
             elif sev_str == "WARNING": sev = Severity.WARNING
             elif sev_str == "INFO": sev = Severity.INFO
             
+            # 分类映射
+            cat = item.get("category", "业务要素核对")
+            
             checks.append(CheckResult(
                 check_name=item.get("check_name", "语义比对测试"),
+                category=cat,
                 source_a_label="EFlow系统标准",
                 source_a_value=str(item.get("source_a_value", "")),
-                source_b_label=f"文档提取({doc_ext.source_type})",
+                source_b_label=f"文档解析",
                 source_b_value=str(item.get("source_b_value", "")),
                 result=item.get("result", "MATCH"),
                 severity=sev,

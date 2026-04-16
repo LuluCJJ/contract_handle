@@ -131,6 +131,7 @@ class Severity(str, Enum):
 
 class CheckResult(BaseModel):
     check_name: str
+    category: str = "基本要素核对" # 默认为基本要素，支持：身份一致性、合规完整性、业务要素核对
     field_name: str = ""
     source_a_label: str = "EFlow基准"
     source_a_value: str = ""
@@ -150,14 +151,15 @@ class DocAnalysisReport(BaseModel):
     semantic_checks: List[CheckResult] = Field(default_factory=list)
 
 class OverallStatus(str, Enum):
-    PASSED = "PASSED"
-    RISK_FOUND = "RISK_FOUND"
-    FAILED = "FAILED"
+    HIGH_RISK = "HIGH_RISK"
+    MED_RISK = "MED_RISK"
+    LOW_RISK = "LOW_RISK"
+    ZERO_RISK = "ZERO_RISK"
 
 class AuditReport(BaseModel):
     """贯穿全局的完整审查报告"""
     task_id: str = ""
-    overall_status: OverallStatus = OverallStatus.PASSED
+    overall_status: OverallStatus = OverallStatus.ZERO_RISK
     eflow_data: EFlowData = Field(default_factory=EFlowData)
     document_reports: List[DocAnalysisReport] = Field(default_factory=list)
     cross_validation_checks: List[CheckResult] = Field(default_factory=list)

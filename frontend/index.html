@@ -1,221 +1,164 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang='zh-CN'>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>银行网银权限预审系统</title>
-    <!-- 引入预设字体 -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <!-- 引入图标集 -->
-    <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=5.1.2">
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>银行网银权限预审中心 - V15.0</title>
+    <link href='https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css' rel='stylesheet'>
+    <link rel='stylesheet' href='/static/style.css'>
+    <style>
+        :root {
+            --audit-blue: #2563eb;
+            --audit-bg: #f8fafc;
+            --risk-h: #ef4444; --risk-m: #f59e0b; --risk-l: #6366f1; --risk-z: #10b981;
+        }
+        /* V15.0 新增样式补丁 */
+        .result-summary.risk-HIGH_RISK { border-left: 6px solid var(--risk-h); background: #fef2f2; }
+        .result-summary.risk-MED_RISK { border-left: 6px solid var(--risk-m); background: #fffbeb; }
+        .result-summary.risk-LOW_RISK { border-left: 6px solid var(--risk-l); background: #eef2ff; }
+        .result-summary.risk-ZERO_RISK { border-left: 6px solid var(--risk-z); background: #f0fdf4; }
+
+        .aggregator-summary { padding: 20px; font-size: 15px; line-height: 1.8; color: #1e293b; background: white; border-radius: 8px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
+        
+        .accordion-item { border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .acc-header { padding: 10px 15px; background: #f1f5f9; cursor: pointer; display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
+        .acc-content { padding: 12px; display: none; background: white; font-size: 12px; }
+        .accordion-item.open .acc-content { display: block; }
+
+        .check-cluster { margin-bottom: 30px; }
+        .cluster-title { font-size: 14px; font-weight: 700; color: #334155; padding-bottom: 8px; border-bottom: 2px solid #cbd5e1; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
+        
+        .ext-card { padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; position: relative; }
+        .ext-card:hover { border-color: var(--audit-blue); background: #f0f7ff; }
+        .ext-card-tag { position: absolute; top: 8px; right: 8px; font-size: 10px; color: #94a3b8; }
+
+        .full-text-modal { position: fixed; top: 0; left: 0; width:100%; height:100%; background:rgba(0,0,0,0.6); display:none; z-index:3000; align-items:center; justify-content:center; }
+        .modal-inner { background:white; width:80%; max-height:80vh; border-radius:12px; display:flex; flex-direction:column; }
+        .modal-body-scroll { padding:24px; overflow-y:auto; font-family: monospace; white-space: pre-wrap; background: #f8fafc; font-size: 13px; }
+    </style>
 </head>
 <body>
-
-    <!-- 顶部导航栏 (Enterprise Header) -->
-    <header class="glass-header">
-        <div class="header-inner">
-            <div class="logo">
-                <i class="ri-bank-card-2-line logo-icon"></i>
-                <span class="logo-text">网银权限预审中心 <span style="font-weight: 300; font-size: 14px; opacity: 0.6; margin-left: 8px;">Saas Cloud</span></span>
+    <header class='glass-header'>
+        <div class='header-inner'>
+            <div class='logo'>
+                <i class='ri-bank-card-2-line logo-icon'></i>
+                <span class='logo-text'>网银权限预审中心 <span style='font-weight:300; font-size:12px; opacity:0.7;'>专业辅助审计版 V3.2</span></span>
             </div>
-            <div class="header-actions">
-                <button class="btn-icon" id="btn-settings" title="系统设置">
-                    <i class="ri-settings-3-line"></i>
-                </button>
+            <div class='header-actions'>
+                <button class='btn-icon' id='btn-settings'><i class='ri-settings-3-line'></i></button>
             </div>
         </div>
     </header>
 
-    <main class="container">
-        
-        <!-- 左侧面板：操作区 (Saas Sidebar Style) -->
-        <section class="panel-left">
-            <div class="card glass-card">
-                <div class="card-header">
-                    <h2><i class="ri-equalizer-line"></i> 资料提交与操作</h2>
-                </div>
-                <div class="card-body">
-                    <form id="upload-form">
-                        
-                        <!-- E-Flow JSON -->
-                        <div class="upload-zone" id="zone-eflow">
-                            <input type="file" id="file-eflow" name="eflow_json" accept=".json" required hidden>
-                            <div class="upload-content">
-                                <i class="ri-survey-line drop-icon"></i>
-                                <h3>上传 E-Flow 审批流数据</h3>
-                                <p>支持 .json 格式</p>
-                                <span class="file-name" id="name-eflow">未选择文件</span>
-                            </div>
+    <main class='container'>
+        <section class='panel-left'>
+            <div class='card glass-card'>
+                <div class='card-header'><h2><i class='ri-equalizer-line'></i> 资料提交</h2></div>
+                <div class='card-body'>
+                    <form id='upload-form'>
+                        <div class='upload-zone' id='zone-eflow'>
+                            <input type='file' id='file-eflow' name='eflow_json' accept='.json' required hidden>
+                            <div class='upload-content'><i class='ri-survey-line drop-icon'></i><p id='name-eflow'>上传 E-Flow 数据</p></div>
                         </div>
-
-                        <!-- 银行表单 -->
-                        <div class="upload-zone" id="zone-bank">
-                            <input type="file" id="file-bank" name="bank_doc" accept=".doc,.docx,.pdf" required hidden multiple>
-                            <div class="upload-content">
-                                <i class="ri-file-word-2-line drop-icon"></i>
-                                <h3>上传银行申请表</h3>
-                                <p>支持 .doc, .docx, .pdf 格式</p>
-                                <span class="file-name" id="name-bank">未选择文件</span>
-                            </div>
+                        <div class='upload-zone' id='zone-bank'>
+                            <input type='file' id='file-bank' name='bank_doc' accept='.doc,.docx,.pdf' required hidden multiple>
+                            <div class='upload-content'><i class='ri-file-word-line drop-icon'></i><p id='name-bank'>上传银行申请表</p></div>
                         </div>
-
-                        <!-- 证件图片 -->
-                        <div class="upload-zone" id="zone-id">
-                            <input type="file" id="file-id" name="id_documents" accept="image/*,.pdf" required hidden multiple>
-                            <div class="upload-content">
-                                <i class="ri-global-line drop-icon"></i>
-                                <h3>上传法人/操作人证件</h3>
-                                <p>支持 .jpg, .png 图像以及 .pdf 格式</p>
-                                <span class="file-name" id="name-id">未选择文件</span>
-                            </div>
+                        <div class='upload-zone' id='zone-id'>
+                            <input type='file' id='file-id' name='id_documents' accept='image/*,.pdf' required hidden multiple>
+                            <div class='upload-content'><i class='ri-profile-line drop-icon'></i><p id='name-id'>上传证件</p></div>
                         </div>
-
-                        <div class="form-actions">
-                            <button type="submit" class="btn-primary" id="btn-submit">
-                                <span>开始交叉比对扫描</span>
-                                <i class="ri-arrow-right-line"></i>
-                            </button>
-                        </div>
+                        <button type='submit' class='btn-primary' id='btn-submit' style='height:44px;'>开始智感审计比对</button>
                     </form>
-
-                    <!-- 分割线或测试用例快捷加载 -->
-                    <div class="test-cases-wrapper">
-                        <div class="divider"><span>或使用标准测试集</span></div>
-                        <div class="quick-cases" id="quick-cases-container">
-                            <!-- 动态加载测试用例下拉框 -->
-                            <select id="case-select" class="modern-select">
-                                <option value="">载入测试用例...</option>
-                            </select>
-                            <button type="button" class="btn-secondary" id="btn-run-case">运行</button>
-                        </div>
+                    <div style='margin-top:20px;'>
+                        <select id='case-select' class='modern-select'><option value=''>加载标准测试用例...</option></select>
+                        <button id='btn-run-case' class='btn-secondary' style='width:100%; margin-top:10px;'>运行选中用例</button>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- 右侧面板：结果与报告区 -->
-        <section class="panel-right" id="result-panel" style="display: none;">
-            
-            <!-- 结论摘要 (Enterprise Alert Style) -->
-            <div class="card glass-card result-summary" id="summary-card">
-                <div class="status-icon" id="status-icon"></div>
-                <div class="status-texts">
-                    <h2 id="status-title">等待分析...</h2>
-                    <p id="status-desc">请在左侧上传文档或选择测试用例开始任务。</p>
+        <section class='panel-right' id='result-panel' style='display:none;'>
+            <div class='card result-summary' id='summary-card'>
+                <div class='status-icon' id='status-icon'></div>
+                <div class='status-texts'>
+                    <h2 id='status-title'>画像分析中...</h2>
+                    <p id='status-desc'></p>
                 </div>
             </div>
 
-            <!-- 整体视角的模型总结报告 -->
-            <div class="card glass-card" id="llm-summary-card" style="display: none; margin-bottom: 24px;">
-                <div class="card-header">
-                    <h2><i class="ri-brain-line"></i> 整体性文档风险报告总结</h2>
-                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px;">由大模型结合业务合规视角深度剖析</p>
-                </div>
-                <div class="card-body">
-                    <p id="llm-overall-summary" style="font-weight: 500; margin-bottom: 16px; color: var(--text-primary);"></p>
-                    <div style="background: rgba(0,0,0,0.1); padding: 16px; border-radius: 8px; border-left: 4px solid var(--primary-color);">
-                        <h4 style="margin-bottom: 8px; font-size: 0.95rem; color: var(--primary-color);">💡 合规视角洞察重点与风险提示：</h4>
-                        <ul id="llm-risk-insights" style="padding-left: 20px; font-size: 0.9rem; color: var(--text-secondary);">
-                        </ul>
-                    </div>
-                    <div style="margin-top: 16px; font-size: 0.8rem; color: var(--text-secondary); text-align: right;">
-                        <span>注：审核提示词(Prompt)沉淀在 <code>backend/prompts/comparison.py</code>，支持业务共建此风控知识库。</span>
-                    </div>
+            <div id='llm-summary-card' style='display:none;'>
+                <div class='aggregator-summary'>
+                    <div id='aggregator-text' style='font-weight:600; border-bottom:1px solid #eee; padding-bottom:12px; margin-bottom:12px;'></div>
+                    <div id='llm-risk-insights' style='font-size:13px; color:#475569;'></div>
                 </div>
             </div>
 
-            <!-- 提取详情横栏（E-Flow, Word, 证件）并排比较 -->
-            <div class="extraction-grid">
-                <div class="extract-col">
-                    <div class="col-header eflow-header">
-                        <i class="ri-database-2-line"></i> EFlow 系统基准
-                    </div>
-                    <div class="col-body" id="ext-eflow">
-                        <div class="text-placeholder">等待解析...</div>
-                    </div>
+            <div class='extraction-grid'>
+                <div class='extract-col'>
+                    <div class='col-header eflow-header'><i class='ri-database-2-line'></i> EFlow 业务底账 (分类收拢)</div>
+                    <div class='col-body' id='ext-eflow'></div>
                 </div>
-                
-                <!-- Word 提取 -->
-                <div class="extract-col">
-                    <div class="col-header word-header">
-                        <i class="ri-file-text-line"></i> 合同附件
-                    </div>
-                    <div class="col-body" id="ext-word">
-                    </div>
+                <div class='extract-col'>
+                    <div class='col-header word-header'><i class='ri-file-search-line'></i> 文档解析对齐 (点击穿透)</div>
+                    <div class='col-body' id='ext-word'></div>
                 </div>
-
-                <!-- 证件 OCR -->
-                <div class="extract-col">
-                    <div class="col-header ocr-header">
-                        <i class="ri-profile-line"></i> 实体证件
-                    </div>
-                    <div class="col-body" id="ext-ocr">
-                    </div>
+                <div class='extract-col'>
+                    <div class='col-header ocr-header'><i class='ri-shield-user-line'></i> 证件提取对齐</div>
+                    <div class='col-body' id='ext-ocr'></div>
                 </div>
             </div>
 
-            <!-- 检测报告详情 (硬规则 & 语义) -->
-            <div class="card glass-card">
-                <div class="card-header">
-                    <h2><i class="ri-list-check-2"></i> 审核校验项明细</h2>
-                </div>
-                <div class="card-body">
-                    <ul class="check-list" id="check-list">
-                        <!-- 动态列表 -->
-                    </ul>
-                </div>
+            <div class='card glass-card'>
+                <div class='card-header'><h2><i class='ri-钉线-line'></i> 场景聚类审计明细</h2></div>
+                <div class='card-body' id='check-list-container' style='padding:0;'></div>
             </div>
-
         </section>
-        
-        <!-- 加载动画覆盖层 -->
-        <div class="loading-overlay" id="loading-overlay">
-            <div class="scanner"></div>
-            <p>正在分析比对三方数据，基于大模型语义洞察中...</p>
-        </div>
-
     </main>
+
+    <div class='full-text-modal' id='full-text-modal'>
+        <div class='modal-inner'>
+            <div class='modal-header'><h3>文档全文回溯解析</h3><button class='btn-close' id='close-modal'>×</button></div>
+            <div class='modal-body-scroll' id='modal-body-content'></div>
+        </div>
+    </div>
 
     <!-- 设置模态框 -->
     <div class="modal" id="settings-modal">
         <div class="modal-content glass-card">
             <div class="modal-header">
                 <h2>LLM 大语言模型配置</h2>
-                <button class="btn-close" id="btn-close-settings"><i class="ri-close-line"></i></button>
+                <button class="btn-close" id="btn-close-settings">×</button>
             </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label>API 协议类型</label>
-                    <select id="cfg-type" class="modern-select" style="width: 100%; height: 40px; border-radius: 6px; background: rgba(255,255,255,0.05); color: white; border: 1px solid rgba(255,255,255,0.1); padding: 0 12px;">
+                <div class="form-group" style="margin-bottom:15px;">
+                    <label style="font-size:12px; display:block; margin-bottom:5px;">API 协议类型</label>
+                    <select id="cfg-type" class="modern-select" style="width:100%;">
                         <option value="openai">OpenAI SDK (通用/国产大模型)</option>
                         <option value="requests">Requests 请求 (公司内网专用)</option>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label>API Base URL</label>
-                    <input type="text" id="cfg-base" class="modern-input" placeholder="https://api.openai.com/v1">
+                <div class="form-group" style="margin-bottom:15px;">
+                    <label style="font-size:12px; display:block; margin-bottom:5px;">API Base URL</label>
+                    <input type="text" id="cfg-base" class="modern-input" style="width:100%; height:32px; padding:0 10px;" placeholder="https://api.openai.com/v1">
                 </div>
-                <div class="form-group">
-                    <label>API Key</label>
-                    <input type="password" id="cfg-key" class="modern-input" placeholder="sk-...">
+                <div class="form-group" style="margin-bottom:15px;">
+                    <label style="font-size:12px; display:block; margin-bottom:5px;">API Key</label>
+                    <input type="password" id="cfg-key" class="modern-input" style="width:100%; height:32px; padding:0 10px;" placeholder="sk-...">
                 </div>
-                <div class="form-group">
-                    <label>Model Name</label>
-                    <input type="text" id="cfg-model" class="modern-input" placeholder="moonshot-v1-8k">
+                <div class="form-group" style="margin-bottom:15px;">
+                    <label style="font-size:12px; display:block; margin-bottom:5px;">Model Name</label>
+                    <input type="text" id="cfg-model" class="modern-input" style="width:100%; height:32px; padding:0 10px;" placeholder="moonshot-v1-8k">
                 </div>
-                <div class="settings-actions">
-                    <button class="btn-secondary" id="btn-test-llm">连通性测试</button>
-                    <button class="btn-primary" id="btn-save-settings">保存配置</button>
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button class="btn-primary" id="btn-save-settings" style="flex:1; height:36px;">保存配置</button>
+                    <button class="btn-secondary" id="btn-close-settings-2" style="flex:1; height:36px;">取消</button>
                 </div>
-                <div id="settings-toast" class="toast">配置已保存</div>
             </div>
         </div>
     </div>
 
     <!-- 图表和脚本 -->
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260416_2020"></script>
 </body>
 </html>

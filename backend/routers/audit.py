@@ -144,24 +144,42 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
 
     # === 4. 交叉检验 (Cross Validation) ===
     # 查找各个提取报告间的矛盾，比如文档1说是Token，文档2说是U盾
-    cross_checks = []
+    cross_validator_checks = []
     # 留作后续功能延展...可以纯代码写，也可以给一个特定的 LLM Cross Checker
 
     # === 5. 全局智脑 (Global Aggregator) ===
     all_reps_dump = [dr.model_dump() for dr in document_reports]
-    llm_sum = comparator.generate_global_summary(eflow, all_reps_dump, cross_checks)
-    _save_intermediate(out_dir, "m5_llm_summary", llm_sum)
+    global_summary = comparator.generate_global_summary(eflow, all_reps_dump, cross_validator_checks)
+    _save_intermediate(out_dir, "m5_llm_summary", global_summary)
 
-    # === 6. 报告封装 ===
-    report = reporter.assemble_final_report(task_id, eflow, document_reports, cross_checks, llm_sum)
-    _save_intermediate(out_dir, "m6_final_report", report.model_dump())
+    # === 6. 报告封装 (V15.6 逻辑) ===
+    # 汇总计算综述
+    has_critical = any(c.severity == Severity.CRITICAL for c in cross_validator_checks)
+    for dr in document_reports:
+        if any(c.severity == Severity.CRITICAL for c in dr.hard_checks + dr.semantic_checks):
+            has_critical = True
+    
+    has_warning = any(c.severity == Severity.WARNING for c in cross_validator_checks)
+    for dr in document_reports:
+        if any(c.severity == Severity.WARNING for c in dr.hard_checks + dr.semantic_checks):
+            has_warning = True
 
-    # 使用 jsonable_encoder 确保 Pydantic 模型能被正确序列化
-    return jsonable_encoder({
-        "status": "completed",
-        "task_id": task_id,
-        "report": report
-    })
+    status = OverallStatus.ZERO_RISK
+    if has_critical: status = OverallStatus.HIGH_RISK
+    elif has_warning: status = OverallStatus.MED_RISK
+    elif len(document_reports) > 0: status = OverallStatus.LOW_RISK
+
+    final_report = AuditReport(
+        task_id=task_id,
+        overall_status=status,
+        eflow_data=eflow,
+        document_reports=document_reports,
+        cross_validation_checks=cross_validator_checks,
+        llm_summary=global_summary
+    )
+    _save_intermediate(out_dir, "m6_final_report", final_report.model_dump())
+
+    return jsonable_encoder(final_report)
 
 @router.get("/testcases")
 async def list_testcases():
