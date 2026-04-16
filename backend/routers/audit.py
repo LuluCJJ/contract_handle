@@ -5,7 +5,7 @@ import os
 import uuid
 import json
 import shutil
-import datetime
+from datetime import datetime, date
 from pathlib import Path
 from typing import List, Annotated
 from concurrent.futures import ThreadPoolExecutor
@@ -66,7 +66,7 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
     """
     核心审核管线 V3 - 支持动态数量文本与图片附件
     """
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = OUTPUTS_BASE / f"{task_id}_{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -124,7 +124,7 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         extracted.raw_text = json.dumps(ocr_result, ensure_ascii=False)
         
         h_checks = hard_comparator.run_hard_comparisons(eflow, extracted)
-        curr = datetime.date.today().strftime("%Y-%m-%d")
+        curr = date.today().strftime("%Y-%m-%d")
         if person.expiry_date and person.expiry_date <= curr:
             h_checks.append(CheckResult(
                 check_name="证件有效期核查", field_name="expiry_date",
@@ -221,12 +221,12 @@ async def run_from_testcase(case_id: str = Form(...)):
     img_paths = []
 
     for f in test_dir.iterdir():
-        if f.suffix in (".doc", ".docx", ".pdf") and f.stem != "eflow":
-            if "bank_app" in f.name or "form" in f.name:
-                doc_paths.append(str(f))
-            else:
-                img_paths.append(str(f))
-        elif f.suffix.lower() in (".jpg", ".jpeg", ".png"):
+        ext = f.suffix.lower()
+        if ext in (".doc", ".docx", ".pdf") and f.stem != "eflow":
+            # 只要是文档类后缀，一律归为申请表
+            doc_paths.append(str(f))
+        elif ext in (".jpg", ".jpeg", ".png"):
+            # 只要是图片类后缀，一律归为证件
             img_paths.append(str(f))
 
     if not eflow_path.exists():

@@ -178,15 +178,21 @@ document.getElementById('btn-run-case').addEventListener('click', async () => {
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const eflowF = document.getElementById('file-eflow').files[0];
-    const bankF = document.getElementById('file-bank').files[0];
+    const bankFiles = document.getElementById('file-bank').files;
     const idFiles = document.getElementById('file-id').files;
     
-    if(!eflowF || !bankF || idFiles.length === 0) return alert('必须上传所有文件');
+    if(!eflowF || bankFiles.length === 0 || idFiles.length === 0) return alert('必须上传所有文件');
     
     showLoading();
     const fd = new FormData();
     fd.append('eflow_json', eflowF);
-    fd.append('bank_doc', bankF);
+    
+    // 多文档支持: bank_doc
+    for(let i=0; i<bankFiles.length; i++) {
+        fd.append('bank_doc', bankFiles[i]);
+    }
+    
+    // 多文档支持: id_documents
     for(let i=0; i<idFiles.length; i++) {
         fd.append('id_documents', idFiles[i]);
     }
@@ -266,26 +272,38 @@ function renderResult(data) {
     
     // 提取结果分片展示
     if(rp.document_reports && rp.document_reports.length > 0) {
-        // 主文档列 (通常是 Word/PDF)
-        const doc1 = rp.document_reports.find(d => d.doc_type === 'word' || d.doc_type === 'pdf') || rp.document_reports[0];
+        // 1. 合同附件列 (展示所有 Word/PDF)
+        const bankCol = document.getElementById('ext-word');
+        bankCol.innerHTML = '';
+        const allBankDocs = rp.document_reports.filter(d => d.doc_type === 'word' || d.doc_type === 'pdf');
         
-        // 证件列 (收集所有 OCR 类型的文档)
+        if(allBankDocs.length > 0) {
+            allBankDocs.forEach((doc, idx) => {
+                const subDiv = document.createElement('div');
+                subDiv.id = `ext-word-sub-${idx}`;
+                subDiv.className = 'ext-multi-item';
+                bankCol.appendChild(subDiv);
+                renderV3Column(subDiv.id, doc.doc_name, doc.extracted_data);
+            });
+        } else {
+             bankCol.innerHTML = '<div class="ext-label">无合同附件</div>';
+        }
+
+        // 2. 证件列 (展示所有 OCR)
+        const ocrCol = document.getElementById('ext-ocr');
+        ocrCol.innerHTML = ''; 
         const allOcrDocs = rp.document_reports.filter(d => d.doc_type === 'ocr');
         
-        if(doc1) renderV3Column('ext-word', doc1.doc_name, doc1.extracted_data);
-        
         if(allOcrDocs.length > 0) {
-            // 清理并渲染所有证件
-            const ocrCol = document.getElementById('ext-ocr');
-            ocrCol.innerHTML = ''; 
             allOcrDocs.forEach((doc, idx) => {
                 const subDiv = document.createElement('div');
                 subDiv.id = `ext-ocr-sub-${idx}`;
+                subDiv.className = 'ext-multi-item';
                 ocrCol.appendChild(subDiv);
                 renderV3Column(subDiv.id, doc.doc_name, doc.extracted_data);
             });
         } else {
-            document.getElementById('ext-ocr').innerHTML = '<div class="ext-label">无证件附件</div>';
+            ocrCol.innerHTML = '<div class="ext-label">无证件附件</div>';
         }
     }
     
