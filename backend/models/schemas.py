@@ -57,6 +57,8 @@ class PlatformInfo(BaseModel):
     bank_short: str = ""
     country: str = ""
     branch_name: str = ""
+    login_url: str = ""
+    supported_languages: List[str] = Field(default_factory=list)
 
 
 # === 权限 & 介质 (核心业务逻辑) ===
@@ -81,7 +83,13 @@ class UserPermission(BaseModel):
     permission_scope: PermissionScope = Field(default_factory=PermissionScope)
     account_number: str = ""
     account_name: str = ""
+    account_name_en: str = ""
     account_status: str = ""
+    account_type: str = ""          # 账户性质
+    pay_receive_type: str = ""      # 收付款类型
+    payment_id: str = ""            # 支付号
+    query_id: str = ""              # 查询号
+    company_code: str = ""          # 公司编码
     media: MediaInfo = Field(default_factory=MediaInfo)
     single_limit: float = 0.0
     daily_limit: float = 0.0
