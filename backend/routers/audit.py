@@ -184,17 +184,21 @@ async def run_audit(
     task_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        eflow_path = _save_upload(eflow_json, task_dir, "eflow.json")
+        # 1. 保存 EFlow
+        eflow_orig_name = eflow_json.filename or "eflow.json"
+        eflow_path = _save_upload(eflow_json, task_dir, eflow_orig_name)
 
+        # 2. 保存合同文档 (保留原名)
         d_paths = []
-        for i, f in enumerate(bank_doc):
-            ext = Path(f.filename or ".docx").suffix
-            d_paths.append(_save_upload(f, task_dir, f"bank_app_{i}{ext}"))
+        for f in bank_doc:
+            orig_name = f.filename or f"bank_doc_{uuid.uuid4().hex[:4]}.docx"
+            d_paths.append(_save_upload(f, task_dir, orig_name))
 
+        # 3. 保存证件原件 (保留原名)
         i_paths = []
-        for i, img_f in enumerate(id_documents):
-            img_ext = Path(img_f.filename or ".jpg").suffix
-            i_paths.append(_save_upload(img_f, task_dir, f"id_doc_{i}{img_ext}"))
+        for f in id_documents:
+            orig_name = f.filename or f"id_doc_{uuid.uuid4().hex[:4]}.jpg"
+            i_paths.append(_save_upload(f, task_dir, orig_name))
 
         return _run_pipeline(task_id, eflow_path, d_paths, i_paths)
     except Exception as e:
