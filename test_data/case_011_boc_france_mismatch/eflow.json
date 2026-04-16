@@ -1,5 +1,15 @@
 {
   "flow_id": "EF2026041101",
+  "business_type": "Apply for e-Corp Internet Banking Service",
+  "business_scenario": "Apply for e-Corp Internet Banking Service",
+  "platform": {
+    "platform_code": "SYS_001",
+    "platform_name": "对应网银平台",
+    "bank_name": "中国银行",
+    "bank_name_en": "BOC/CCB/ICBC",
+    "country": "中国",
+    "branch_name": "相关分行"
+  },
   "company": {
     "name": "Global Trading Solutions SARL",
     "cert_type": "Business Registration",
@@ -8,30 +18,29 @@
     "phone": "021-12345678",
     "industry": "一般贸易"
   },
-  "account": {
-    "bank_name": "Bank of China Paris Branch",
-    "branch": "Paris Main",
-    "account_number": "FR7630004000031234567890143"
-  },
-  "operator": {
+  "applicant": {
     "name": "Li Wei",
-    "id_type": "Passport",
-    "id_number": "E99999999",
-    "phone": "13800138000",
-    "role": "操作员"
+    "department": "通用申请部"
   },
-  "handler": {
-    "name": "Li Wei",
-    "id_type": "Passport",
-    "id_number": "E99999999",
-    "phone": "13800138000",
-    "role": "经办人"
-  },
-  "activity": "Apply for e-Corp Internet Banking Service",
-  "permissions": {
-    "level": "Level_A",
-    "single_limit": 50000,
-    "daily_limit": 200000
-  },
-  "apply_date": "2026-04-11"
+  "users": [
+    {
+      "user_name": "Li Wei",
+      "permission_sub_type": "操作员",
+      "permission_scope": {
+        "authorize": true,
+        "payment": true,
+        "query": true,
+        "upload": false
+      },
+      "media": {
+        "existing_media": "",
+        "media_type": "U盾/Token",
+        "is_blank": false
+      },
+      "account_number": "FR7630004000031234567890143",
+      "account_status": "In Use",
+      "single_limit": 50000,
+      "daily_limit": 200000
+    }
+  ]
 }

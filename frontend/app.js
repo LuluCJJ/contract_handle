@@ -55,11 +55,9 @@ btnSettings.addEventListener('click', async () => {
     modal.classList.add('show');
 });
 
-// Dropdown change listener for "smooth" switching
+// Dropdown change listener
 document.getElementById('cfg-type').addEventListener('change', (e) => {
     const newType = e.target.value;
-    // Before switching, optionally we could temp save current inputs, 
-    // but the main requirement is to record what was PREVIOUSLY saved.
     fillSettings(newType);
 });
 
@@ -67,14 +65,12 @@ function fillSettings(type) {
     const cfg = llmConfigs[type] || { api_base: '', model_name: '', api_key_masked: '' };
     document.getElementById('cfg-base').value = cfg.api_base || '';
     document.getElementById('cfg-model').value = cfg.model_name || '';
-    // Key is always masked from backend, clear it to invite fresh entry or keep sk-placeholder
     document.getElementById('cfg-key').value = ""; 
     document.getElementById('cfg-key').placeholder = cfg.api_key_masked || "sk-...";
 }
 
 btnClose.addEventListener('click', () => modal.classList.remove('show'));
 
-// Save Settings Logic
 async function saveSettings(silent = false) {
     const activeType = document.getElementById('cfg-type').value;
     const keyInput = document.getElementById('cfg-key').value;
@@ -94,10 +90,8 @@ async function saveSettings(silent = false) {
         });
         
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        
         const data = await res.json();
         
-        // Sync to local state
         llmConfigs.active_type = data.api_type;
         llmConfigs.openai = data.openai;
         llmConfigs.requests = data.requests;
@@ -106,7 +100,7 @@ async function saveSettings(silent = false) {
             toast.textContent = '配置已保存';
             toast.classList.add('show');
             setTimeout(() => toast.classList.remove('show'), 2000);
-            fillSettings(activeType); // Re-sync UI with masked keys
+            fillSettings(activeType);
         }
         return true;
     } catch(e) {
@@ -119,7 +113,6 @@ async function saveSettings(silent = false) {
 btnSave.addEventListener('click', () => saveSettings());
 
 btnTest.addEventListener('click', async () => {
-    // 1. Ensure current inputs are saved first (blocking)
     btnTest.textContent = "正在保存并测试...";
     btnTest.disabled = true;
 
@@ -127,7 +120,6 @@ btnTest.addEventListener('click', async () => {
         const saved = await saveSettings(true);
         if (!saved) throw new Error("保存配置失败，无法测试");
 
-        // 2. Now test
         const res = await fetch('/api/settings/llm/test', { method: 'POST' });
         const data = await res.json();
         
@@ -213,10 +205,12 @@ form.addEventListener('submit', async (e) => {
 function showLoading() { document.getElementById('loading-overlay').classList.add('show'); }
 function hideLoading() { document.getElementById('loading-overlay').classList.remove('show'); }
 
-// Render
+// V3 Render Logic
 function renderResult(data) {
-    if(data.status !== 'completed' || !data.report) {
-        return alert("后端返回状态不是 completed。可能是未配置正确的大模型。");
+    // 兼容判定：V3 必须有 document_reports
+    if(!data.report || !data.report.document_reports) {
+        console.error("V3 Protocol Mismatch", data);
+        return alert("后端返回数据结构与 V3 协议不匹配，请检查服务版本。");
     }
     
     const rp = data.report;
@@ -243,7 +237,7 @@ function renderResult(data) {
         icon.innerHTML = '<i class="ri-close-circle-line"></i>';
         title.textContent = '预审阻断 (存在严重冲突)';
     }
-    desc.textContent = rp.summary;
+    desc.textContent = rp.summary || '审计管线执行结束。';
     
     // LLM Overall Summary
     const llmCard = document.getElementById('llm-summary-card');
@@ -258,92 +252,129 @@ function renderResult(data) {
             insights.forEach(item => {
                 const li = document.createElement('li');
                 li.style.marginBottom = '6px';
-                li.textContent = item;
+                li.innerHTML = `<i class="ri-alert-line" style="color:#f59e0b"></i> ${item}`;
                 insightsList.appendChild(li);
             });
-        } else {
-            insightsList.innerHTML = '<li>无特别风险提示</li>';
         }
     } else {
         llmCard.style.display = 'none';
     }
 
-    // Extracted Data Grid
-    renderColumn('ext-eflow', rp.eflow_data);
-    renderColumn('ext-word', rp.word_data);
-    renderColumn('ext-ocr', rp.ocr_data);
+    // Extracted Data Grid (V3 Adaption)
+    // 基准列
+    renderV3Column('ext-eflow', 'EFlow 系统基准', rp.eflow_data);
     
-    // Checks
+    // 提取结果分片展示
+    if(rp.document_reports && rp.document_reports.length > 0) {
+        // 主文档列 (通常是 Word/PDF)
+        const doc1 = rp.document_reports.find(d => d.doc_type === 'word' || d.doc_type === 'pdf') || rp.document_reports[0];
+        
+        // 证件列 (收集所有 OCR 类型的文档)
+        const allOcrDocs = rp.document_reports.filter(d => d.doc_type === 'ocr');
+        
+        if(doc1) renderV3Column('ext-word', doc1.doc_name, doc1.extracted_data);
+        
+        if(allOcrDocs.length > 0) {
+            // 清理并渲染所有证件
+            const ocrCol = document.getElementById('ext-ocr');
+            ocrCol.innerHTML = ''; 
+            allOcrDocs.forEach((doc, idx) => {
+                const subDiv = document.createElement('div');
+                subDiv.id = `ext-ocr-sub-${idx}`;
+                ocrCol.appendChild(subDiv);
+                renderV3Column(subDiv.id, doc.doc_name, doc.extracted_data);
+            });
+        } else {
+            document.getElementById('ext-ocr').innerHTML = '<div class="ext-label">无证件附件</div>';
+        }
+    }
+    
+    // Checks (合并展示所有文档的检查项)
     const list = document.getElementById('check-list');
     list.innerHTML = '';
-    rp.checks.forEach(chk => {
-        const li = document.createElement('li');
-        li.className = `check-item severity-${chk.severity}`;
-        
-        let diffHtml = '';
-        if(chk.source_a_label || chk.source_b_label || chk.source_c_label) {
-            diffHtml = '<div class="check-diffs">';
-            if(chk.source_a_value) diffHtml += `<div class="diff-item"><span class="diff-label">${chk.source_a_label}</span><span class="diff-value">${chk.source_a_value}</span></div>`;
-            if(chk.source_b_value) diffHtml += `<div class="diff-item"><span class="diff-label">${chk.source_b_label}</span><span class="diff-value">${chk.source_b_value}</span></div>`;
-            if(chk.source_c_value) diffHtml += `<div class="diff-item"><span class="diff-label">${chk.source_c_label}</span><span class="diff-value">${chk.source_c_value}</span></div>`;
-            diffHtml += '</div>';
-        }
-
-        li.innerHTML = `
-            <div class="check-header">
-                <span class="check-title">${chk.check_name}</span>
-                <span class="check-badge">${chk.severity}</span>
-            </div>
-            <div class="check-desc">${chk.detail || (chk.result ==='MATCH'?'一致':'异常')}</div>
-            ${diffHtml}
-        `;
-        list.appendChild(li);
+    
+    // 渲染普通检查项
+    rp.document_reports.forEach(dr => {
+        const allChecks = [...dr.hard_checks, ...dr.semantic_checks];
+        allChecks.forEach(chk => {
+            if(chk.severity === 'PASS') return; // 隐藏通过项
+            addCheckItem(list, dr.doc_name, chk);
+        });
     });
+    
+    // 渲染交叉检查项
+    if(rp.cross_validation_checks) {
+        rp.cross_validation_checks.forEach(chk => {
+            addCheckItem(list, '交叉验证', chk);
+        });
+    }
 }
 
-function renderColumn(id, extData) {
-    if(!extData) return;
+function addCheckItem(container, scopeName, chk) {
+    const li = document.createElement('li');
+    li.className = `check-item severity-${chk.severity}`;
+    
+    const diffHtml = `
+        <div class="check-diffs">
+            <div class="diff-item"><span class="diff-label">EFlow</span><span class="diff-value">${chk.source_a_value || '-'}</span></div>
+            <div class="diff-item"><span class="diff-label">${scopeName}</span><span class="diff-value">${chk.source_b_value || '-'}</span></div>
+        </div>
+    `;
+
+    li.innerHTML = `
+        <div class="check-header">
+            <span class="check-title">${chk.check_name}</span>
+            <span class="check-badge">${chk.severity}</span>
+        </div>
+        <div class="check-desc">${chk.detail}</div>
+        ${diffHtml}
+    `;
+    container.appendChild(li);
+}
+
+function renderV3Column(id, title, data) {
     const col = document.getElementById(id);
-    let html = '';
+    if(!col || !data) return;
+    
+    let html = `<div style="font-size:12px; opacity:0.6; margin-bottom:10px; border-bottom:1px solid rgba(255,255,255,0.1)">${title}</div>`;
     
     const addkv = (label, val) => {
         if(val) html += `<div class="ext-group"><div class="ext-label">${label}</div><div class="ext-value">${val}</div></div>`;
     };
+
+    // 公司信息
+    if(data.company && data.company.name) addkv('单位', data.company.name);
     
-    if(extData.company.name) addkv('单位名称', extData.company.name);
-    if(extData.company.cert_number) addkv('单位统一码', extData.company.cert_number);
-    if(extData.company.legal_representative) addkv('法定代表人', extData.company.legal_representative);
+    // 人员/账号/权限 (如果是 EFlowData)
+    if(data.users && Array.isArray(data.users)) {
+        data.users.forEach(u => {
+            if(!u) return;
+            const scope = u.permission_scope || {};
+            const scopeStr = [
+               scope.authorize ? '审' : '',
+               scope.payment ? '支' : '',
+               scope.query ? '查' : '',
+               scope.upload ? '传' : ''
+            ].filter(x => x).join('|');
+            
+            const acc = u.account_number || '-';
+            const limitStr = (u.single_limit || u.daily_limit) ? `<br/>单笔:${u.single_limit || 0} / 日累:${u.daily_limit || 0}` : '';
+            addkv(u.user_name || '操作员', `账号:${acc}<br/>权限:[${scopeStr || '无'}]${limitStr}`);
+        });
+    }
     
-    // 渲染指派人 (可能有多个)
-    if(extData.handlers && extData.handlers.length > 0) {
-        extData.handlers.forEach((h, i) => {
-            const suffix = extData.handlers.length > 1 ? ` (人${i+1})` : '';
-            addkv(`指派人${suffix}`, h.name);
+    // 补充：展示公司证件号与情景
+    if(data.company && data.company.cert_number) addkv('主证件号', data.company.cert_number);
+    if(data.business_scenario) addkv('业务情景', data.business_scenario);
+    
+    // 如果是 OCR/人员模型
+    if(data.persons && Array.isArray(data.persons)) {
+        data.persons.forEach(p => {
+            addkv('持证人', `${p.name}<br/>${p.id_number || ''}`);
         });
     }
 
-    // 渲染操作员 (可能有多个)
-    if(extData.operators && extData.operators.length > 0) {
-        extData.operators.forEach((op, i) => {
-            const suffix = extData.operators.length > 1 ? ` (人${i+1})` : '';
-            addkv(`操作员${suffix}`, op.name);
-            if(op.id_number) addkv(`操作证件${suffix}`, `${op.id_type || ''} ${op.id_number}`);
-        });
-    }
-
-    if(extData.account.account_number) addkv('业务账号', extData.account.account_number);
+    if(data.business_activity) addkv('意图', data.business_activity);
     
-    if(extData.permissions && (extData.permissions.level || extData.permissions.single_limit)) {
-        addkv('权限与限额', `${extData.permissions.level || ''} (单笔: ${extData.permissions.single_limit || 0})`);
-    }
-
-    if(extData.activity) {
-        let act = extData.activity;
-        if(typeof act === 'object') {
-            try { act = JSON.stringify(act); } catch(e) { act = String(act); }
-        }
-        addkv('办理业务', act);
-    }
-    
-    col.innerHTML = html || '<div class="ext-group"><div class="ext-label">无提取数据</div></div>';
+    col.innerHTML = html;
 }

@@ -10,20 +10,20 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- 引入图标集 -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=5.1.2">
 </head>
 <body>
 
-    <!-- 顶部导航栏 -->
+    <!-- 顶部导航栏 (Enterprise Header) -->
     <header class="glass-header">
         <div class="header-inner">
             <div class="logo">
-                <i class="ri-bank-line logo-icon"></i>
-                <span class="logo-text">网银权限预审中心</span>
+                <i class="ri-bank-card-2-line logo-icon"></i>
+                <span class="logo-text">网银权限预审中心 <span style="font-weight: 300; font-size: 14px; opacity: 0.6; margin-left: 8px;">Saas Cloud</span></span>
             </div>
             <div class="header-actions">
-                <button class="btn-icon" id="btn-settings" title="系统设置 - LLM 配置">
-                    <i class="ri-settings-4-line"></i>
+                <button class="btn-icon" id="btn-settings" title="系统设置">
+                    <i class="ri-settings-3-line"></i>
                 </button>
             </div>
         </div>
@@ -31,11 +31,11 @@
 
     <main class="container">
         
-        <!-- 左侧面板：上传区 -->
+        <!-- 左侧面板：操作区 (Saas Sidebar Style) -->
         <section class="panel-left">
             <div class="card glass-card">
                 <div class="card-header">
-                    <h2><i class="ri-file-upload-line"></i> 提交预审资料</h2>
+                    <h2><i class="ri-equalizer-line"></i> 资料提交与操作</h2>
                 </div>
                 <div class="card-body">
                     <form id="upload-form">
@@ -99,14 +99,12 @@
         <!-- 右侧面板：结果与报告区 -->
         <section class="panel-right" id="result-panel" style="display: none;">
             
-            <!-- 风险评级卡片 -->
+            <!-- 结论摘要 (Enterprise Alert Style) -->
             <div class="card glass-card result-summary" id="summary-card">
-                <div class="status-icon" id="status-icon">
-                    <i class="ri-shield-check-line"></i>
-                </div>
+                <div class="status-icon" id="status-icon"></div>
                 <div class="status-texts">
-                    <h2 id="status-title">审核通过</h2>
-                    <p id="status-desc">三方校验信息完全一致，合规无异常。</p>
+                    <h2 id="status-title">等待分析...</h2>
+                    <p id="status-desc">请在左侧上传文档或选择测试用例开始任务。</p>
                 </div>
             </div>
 
@@ -131,13 +129,12 @@
 
             <!-- 提取详情横栏（E-Flow, Word, 证件）并排比较 -->
             <div class="extraction-grid">
-                <!-- E-Flow 提取 -->
                 <div class="extract-col">
                     <div class="col-header eflow-header">
-                        <i class="ri-server-line"></i> 电子流系统
+                        <i class="ri-database-2-line"></i> EFlow 系统基准
                     </div>
                     <div class="col-body" id="ext-eflow">
-                        <!-- 动态内容 -->
+                        <div class="text-placeholder">等待解析...</div>
                     </div>
                 </div>
                 

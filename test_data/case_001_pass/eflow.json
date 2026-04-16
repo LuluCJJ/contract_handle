@@ -1,5 +1,15 @@
 {
   "flow_id": "EF2026040301",
+  "business_type": "开通",
+  "business_scenario": "开通网上银行",
+  "platform": {
+    "platform_code": "SYS_001",
+    "platform_name": "对应网银平台",
+    "bank_name": "测试银行",
+    "bank_name_en": "BOC/CCB/ICBC",
+    "country": "中国",
+    "branch_name": "相关分行"
+  },
   "company": {
     "name": "深圳市前海科技有限公司",
     "name_en": "Qianhai Technology Co., Limited",
@@ -9,30 +19,29 @@
     "phone": "021-12345678",
     "industry": "一般贸易"
   },
-  "account": {
-    "bank_name": "中国建设银行",
-    "branch": "深圳南山支行",
-    "account_number": "4420156430005200"
-  },
-  "operator": {
+  "applicant": {
     "name": "张光",
-    "id_type": "身份证",
-    "id_number": "1324331974",
-    "phone": "13800138000",
-    "role": "操作员"
+    "department": "通用申请部"
   },
-  "handler": {
-    "name": "张光",
-    "id_type": "身份证",
-    "id_number": "1324331974",
-    "phone": "13800138000",
-    "role": "经办人"
-  },
-  "activity": "开通网上银行",
-  "permissions": {
-    "level": "Level_A",
-    "single_limit": 500000,
-    "daily_limit": 1000000
-  },
-  "apply_date": "2026-04-03"
+  "users": [
+    {
+      "user_name": "张光",
+      "permission_sub_type": "操作员",
+      "permission_scope": {
+        "authorize": true,
+        "payment": true,
+        "query": true,
+        "upload": false
+      },
+      "media": {
+        "existing_media": "",
+        "media_type": "U盾/Token",
+        "is_blank": false
+      },
+      "account_number": "4420156430005200",
+      "account_status": "In Use",
+      "single_limit": 500000,
+      "daily_limit": 1000000
+    }
+  ]
 }

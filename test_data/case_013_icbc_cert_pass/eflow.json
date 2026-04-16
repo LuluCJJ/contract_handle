@@ -1,5 +1,15 @@
 {
   "flow_id": "EF2026041301",
+  "business_type": "开通",
+  "business_scenario": "权限开通",
+  "platform": {
+    "platform_code": "ICBC_001",
+    "platform_name": "工商银行企网平台",
+    "bank_name": "中国工商银行",
+    "bank_name_en": "ICBC",
+    "country": "中国",
+    "branch_name": "北京朝阳支行"
+  },
   "company": {
     "name": "北京中远国际物流有限公司",
     "cert_type": "统一社会信用代码",
@@ -8,30 +18,29 @@
     "phone": "021-12345678",
     "industry": "一般贸易"
   },
-  "account": {
-    "bank_name": "中国工商银行",
-    "branch": "北京朝阳支行",
-    "account_number": "0200004509201234567"
-  },
-  "operator": {
+  "applicant": {
     "name": "Wang Jun",
-    "id_type": "身份证",
-    "id_number": "110101198501012345",
-    "phone": "13800138000",
-    "role": "操作员"
+    "department": "财务部"
   },
-  "handler": {
-    "name": "Wang Jun",
-    "id_type": "身份证",
-    "id_number": "110101198501012345",
-    "phone": "13800138000",
-    "role": "经办人"
-  },
-  "activity": "企业网银证书申请",
-  "permissions": {
-    "level": "Level_B",
-    "single_limit": 1000000,
-    "daily_limit": 5000000
-  },
-  "apply_date": "2026-04-13"
+  "users": [
+    {
+      "user_name": "Wang Jun",
+      "permission_sub_type": "Payment (Authorize) User",
+      "permission_scope": {
+        "authorize": true,
+        "payment": true,
+        "query": true,
+        "upload": false
+      },
+      "media": {
+        "existing_media": "",
+        "media_type": "Token(OTP)",
+        "is_blank": false
+      },
+      "account_number": "0200004509201234567",
+      "account_status": "In Use",
+      "single_limit": 1000000,
+      "daily_limit": 5000000
+    }
+  ]
 }

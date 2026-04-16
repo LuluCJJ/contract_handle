@@ -1,5 +1,15 @@
 {
   "flow_id": "EF2026040307",
+  "business_type": "Open Online Banking",
+  "business_scenario": "Open Online Banking",
+  "platform": {
+    "platform_code": "SYS_001",
+    "platform_name": "对应网银平台",
+    "bank_name": "测试银行",
+    "bank_name_en": "BOC/CCB/ICBC",
+    "country": "中国",
+    "branch_name": "相关分行"
+  },
   "company": {
     "name": "前海科技有限公司",
     "name_en": "Qianhai Technology Co., Limited",
@@ -9,30 +19,29 @@
     "phone": "021-12345678",
     "industry": "一般贸易"
   },
-  "account": {
-    "bank_name": "Bank of China",
-    "branch": "Paris Branch",
-    "account_number": "C12345XXXXXXX"
-  },
-  "operator": {
+  "applicant": {
     "name": "SANTA CLAUS",
-    "id_type": "ID Card",
-    "id_number": "N1234567",
-    "phone": "13800138000",
-    "role": "操作员"
+    "department": "通用申请部"
   },
-  "handler": {
-    "name": "SANTA CLAUS",
-    "id_type": "Passport",
-    "id_number": "N1234567",
-    "phone": "13800138000",
-    "role": "经办人"
-  },
-  "activity": "Open Online Banking",
-  "permissions": {
-    "level": "Level_A",
-    "single_limit": 500000,
-    "daily_limit": 1000000
-  },
-  "apply_date": "2026-04-03"
+  "users": [
+    {
+      "user_name": "SANTA CLAUS",
+      "permission_sub_type": "操作员",
+      "permission_scope": {
+        "authorize": true,
+        "payment": true,
+        "query": true,
+        "upload": false
+      },
+      "media": {
+        "existing_media": "",
+        "media_type": "U盾/Token",
+        "is_blank": false
+      },
+      "account_number": "C12345XXXXXXX",
+      "account_status": "In Use",
+      "single_limit": 500000,
+      "daily_limit": 1000000
+    }
+  ]
 }

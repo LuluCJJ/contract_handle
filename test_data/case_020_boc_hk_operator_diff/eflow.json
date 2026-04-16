@@ -1,5 +1,15 @@
 {
   "flow_id": "EF2026042001",
+  "business_type": "开通",
+  "business_scenario": "网银新开户",
+  "platform": {
+    "platform_code": "SYS_001",
+    "platform_name": "对应网银平台",
+    "bank_name": "中国银行",
+    "bank_name_en": "BOC/CCB/ICBC",
+    "country": "中国",
+    "branch_name": "相关分行"
+  },
   "company": {
     "name": "Hong Kong Bright Future Trading Ltd",
     "cert_type": "Business Registration Certificate",
@@ -8,30 +18,29 @@
     "phone": "021-12345678",
     "industry": "一般贸易"
   },
-  "account": {
-    "bank_name": "Bank of China (Hong Kong)",
-    "branch": "Admiralty Branch",
-    "account_number": "012-676-0-012345-6"
-  },
-  "operator": {
+  "applicant": {
     "name": "Chen Ming",
-    "id_type": "Passport",
-    "id_number": "K12345678",
-    "phone": "13800138000",
-    "role": "操作员"
+    "department": "通用申请部"
   },
-  "handler": {
-    "name": "Chen Ming",
-    "id_type": "Passport",
-    "id_number": "K12345678",
-    "phone": "13800138000",
-    "role": "经办人"
-  },
-  "activity": "网银新开户",
-  "permissions": {
-    "level": "Level_A",
-    "single_limit": 500000,
-    "daily_limit": 2000000
-  },
-  "apply_date": "2026-04-20"
+  "users": [
+    {
+      "user_name": "Chen Ming",
+      "permission_sub_type": "操作员",
+      "permission_scope": {
+        "authorize": true,
+        "payment": true,
+        "query": true,
+        "upload": false
+      },
+      "media": {
+        "existing_media": "",
+        "media_type": "U盾/Token",
+        "is_blank": false
+      },
+      "account_number": "012-676-0-012345-6",
+      "account_status": "In Use",
+      "single_limit": 500000,
+      "daily_limit": 2000000
+    }
+  ]
 }

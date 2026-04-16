@@ -24,19 +24,19 @@ if %errorlevel% neq 0 (
 )
 
 :: 2. Setup Venv
-if not exist "venv\Scripts\python.exe" (
+if not exist ".venv\Scripts\python.exe" (
     echo [Status] Creating virtual environment...
-    python -m venv venv
+    python -m venv .venv
 )
 
 :: 3. Install Requirements into the VENV explicitly
 echo [Status] Syncing dependencies into venv...
 :: This guarantees packages are installed INTO the venv, NOT into global Python
-venv\Scripts\python.exe -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+.venv\Scripts\python.exe -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 :: 4. Start Backend
 echo [Status] Starting analytical services...
-set B_CMD=set FLAGS_use_mkldnn=0^&set FLAGS_enable_pir_api=0^&set FLAGS_enable_new_executor=0^&venv\Scripts\python.exe -m backend.main
+set B_CMD=set FLAGS_use_mkldnn=0^&set FLAGS_enable_pir_api=0^&set FLAGS_enable_new_executor=0^&.venv\Scripts\python.exe -m backend.main
 start "BankAuditBackend" cmd /c "%B_CMD%"
 
 :: 5. Open UI

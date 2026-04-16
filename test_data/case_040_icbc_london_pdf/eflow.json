@@ -1,27 +1,6 @@
 {
-  "company": {
-    "name": "ICBC Global Trading Ltd",
-    "cert_number": "BN12345678",
-    "cert_type": "Business Registration",
-    "legal_representative": "Li Wei",
-    "phone": "+44 207 123 4567"
-  },
-  "account": {
-    "account_number": "ICBC-LON-88889999",
-    "bank_name": "ICBC London Branch"
-  },
-  "operator": {
-    "name": "Wang Ming",
-    "id_type": "Passport",
-    "id_number": "P87654321",
-    "phone": "+44 7700 900077"
-  },
-  "permissions": {
-    "level": "III",
-    "single_limit": 500000,
-    "daily_limit": 2000000
-  },
-  "activity": {
+  "flow_id": "EF2026_case_040_icbc_london_pdf",
+  "business_type": {
     "type": "New Application",
     "services": {
       "web": {
@@ -32,5 +11,57 @@
         ]
       }
     }
-  }
+  },
+  "business_scenario": {
+    "type": "New Application",
+    "services": {
+      "web": {
+        "selected": [
+          "Enquiry",
+          "Transfer In",
+          "Transfer Out"
+        ]
+      }
+    }
+  },
+  "platform": {
+    "platform_code": "SYS_001",
+    "platform_name": "对应网银平台",
+    "bank_name": "工商银行",
+    "bank_name_en": "BOC/CCB/ICBC",
+    "country": "中国",
+    "branch_name": "相关分行"
+  },
+  "company": {
+    "name": "ICBC Global Trading Ltd",
+    "cert_number": "BN12345678",
+    "cert_type": "Business Registration",
+    "legal_representative": "Li Wei",
+    "phone": "+44 207 123 4567"
+  },
+  "applicant": {
+    "name": "Wang Ming",
+    "department": "通用申请部"
+  },
+  "users": [
+    {
+      "user_name": "Wang Ming",
+      "permission_sub_type": "Default User",
+      "permission_scope": {
+        "authorize": false,
+        "payment": true,
+        "query": true,
+        "upload": false
+      },
+      "media": {
+        "existing_media": "",
+        "media_type": "U盾/Token",
+        "is_blank": false
+      },
+      "account_number": "ICBC-LON-88889999",
+      "account_status": "In Use",
+      "single_limit": 500000,
+      "daily_limit": 2000000
+    }
+  ]
 }

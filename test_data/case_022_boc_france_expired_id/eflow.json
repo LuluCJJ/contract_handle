@@ -1,5 +1,15 @@
 {
   "flow_id": "EF2026042201",
+  "business_type": "Apply for e-Corp Internet Banking",
+  "business_scenario": "Apply for e-Corp Internet Banking",
+  "platform": {
+    "platform_code": "SYS_001",
+    "platform_name": "对应网银平台",
+    "bank_name": "中国银行",
+    "bank_name_en": "BOC/CCB/ICBC",
+    "country": "中国",
+    "branch_name": "相关分行"
+  },
   "company": {
     "name": "Europe Tech Innovation SAS",
     "cert_type": "Business Registration",
@@ -8,31 +18,29 @@
     "phone": "021-12345678",
     "industry": "一般贸易"
   },
-  "account": {
-    "bank_name": "Bank of China Paris Branch",
-    "branch": "Paris Main",
-    "account_number": "FR7630004000039876543210187"
-  },
-  "operator": {
+  "applicant": {
     "name": "Zhang San",
-    "id_type": "Passport",
-    "id_number": "G55667788",
-    "expiry_date": "2024-01-15",
-    "phone": "13800138000",
-    "role": "操作员"
+    "department": "通用申请部"
   },
-  "handler": {
-    "name": "Zhang San",
-    "id_type": "Passport",
-    "id_number": "G55667788",
-    "phone": "13800138000",
-    "role": "经办人"
-  },
-  "activity": "Apply for e-Corp Internet Banking",
-  "permissions": {
-    "level": "Level_A",
-    "single_limit": 100000,
-    "daily_limit": 500000
-  },
-  "apply_date": "2026-04-22"
+  "users": [
+    {
+      "user_name": "Zhang San",
+      "permission_sub_type": "操作员",
+      "permission_scope": {
+        "authorize": true,
+        "payment": true,
+        "query": true,
+        "upload": false
+      },
+      "media": {
+        "existing_media": "",
+        "media_type": "U盾/Token",
+        "is_blank": false
+      },
+      "account_number": "FR7630004000039876543210187",
+      "account_status": "In Use",
+      "single_limit": 100000,
+      "daily_limit": 500000
+    }
+  ]
 }

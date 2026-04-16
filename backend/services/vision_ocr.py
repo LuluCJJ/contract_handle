@@ -32,5 +32,9 @@ def extract_id_info_vision(image_path: str) -> dict:
             "expiry_date": result.get("expiry_date", "")
         }
     except Exception as e:
-        print(f"[Vision OCR] Error: {e}")
-        return {"name": "", "id_number": "", "id_type": "unknown"}
+        error_msg = str(e)
+        print(f"[Vision OCR] Error: {error_msg}")
+        # Special handling for non-vision models (e.g. moonshot)
+        if "Image input not supported" in error_msg or "400" in error_msg:
+             print("[Vision OCR] Active model doesn't support Vision. Consider enabling local PaddleOCR or switching to GPT-4o/Claude-3.5-V.")
+        return {"name": "", "id_number": "", "id_type": "unknown", "error": error_msg}
