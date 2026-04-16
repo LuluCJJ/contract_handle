@@ -67,7 +67,7 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
     核心审核管线 V3 - 支持动态数量文本与图片附件
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_dir = OUTPUTS_BASE / f"{task_id}_{timestamp}"
+    out_dir = OUTPUTS_BASE / f"{timestamp}_{task_id}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # === 1. 构建金标准 (E-Flow) ===
@@ -104,9 +104,8 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         _save_intermediate(out_dir, f"m2_doc_{fname}", dr.model_dump())
 
 
-    # === 3. 并发处理证件 (OCR - 安全并发) ===
-    # 证件扫描是独立的 IO/计算密集型，可以并发而不影响效果
-    def _process_single_img(ip):
+    # === 3. 逐件处理证件 (OCR - 稳健串行模式) ===
+    for ip in img_paths:
         fname = Path(ip).name
         ocr_result = ocr_service.extract_id_info(ip)
         
@@ -133,18 +132,13 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
                 result="MISMATCH", severity=Severity.CRITICAL, detail="实名证件已过期失效"
             ))
         
-        return DocAnalysisReport(
+        dr = DocAnalysisReport(
             doc_name=fname,
             doc_type="ocr",
             extracted_data=extracted,
             hard_checks=h_checks,
             semantic_checks=[]
         )
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        ocr_reports = list(executor.map(_process_single_img, img_paths))
-    
-    for dr in ocr_reports:
         document_reports.append(dr)
         _save_intermediate(out_dir, f"m3_ocr_{dr.doc_name}", dr.model_dump())
 
