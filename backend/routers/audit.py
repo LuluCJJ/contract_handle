@@ -151,10 +151,11 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         curr = dt_date.today().strftime("%Y-%m-%d")
         if person.expiry_date and person.expiry_date <= curr:
             h_checks.append(CheckResult(
-                check_name="证件有效期核查", field_name="expiry_date",
+                check_name="证件有效期核查", category="身份一致性", field_group="subject", field_name="expiry_date",
+                scenario_type=extracted.scenario_type, check_mode="reverse_review",
                 source_a_label="系统当前日期", source_a_value=curr,
                 source_b_label="证件票面", source_b_value=person.expiry_date,
-                result="MISMATCH", severity=Severity.CRITICAL, detail="实名证件已过期失效"
+                result="MISMATCH", severity=Severity.CRITICAL, reason_code="ID_EXPIRED", detail="实名证件已过期失效"
             ))
         
         dr = DocAnalysisReport(
@@ -203,8 +204,39 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         eflow_data=eflow,
         document_reports=document_reports,
         cross_validation_checks=cross_validator_checks,
-        llm_summary=global_summary
+        llm_summary=global_summary,
+        scenario_summary=global_summary.get("scenario_summary", "")
     )
+    manual_confirmation_items = []
+    for dr in document_reports:
+        for c in dr.hard_checks + dr.semantic_checks:
+            if c.manual_confirmation_required:
+                manual_confirmation_items.append({
+                    "doc_name": dr.doc_name,
+                    "check_name": c.check_name,
+                    "field_group": c.field_group,
+                    "detail": c.detail,
+                    "reason_code": c.reason_code,
+                })
+    for c in cross_validator_checks:
+        if c.manual_confirmation_required:
+            manual_confirmation_items.append({
+                "doc_name": "cross_validation",
+                "check_name": c.check_name,
+                "field_group": c.field_group,
+                "detail": c.detail,
+                "reason_code": c.reason_code,
+            })
+    if global_summary.get("manual_confirmation_items"):
+        for item in global_summary.get("manual_confirmation_items", []):
+            manual_confirmation_items.append({
+                "doc_name": "llm_summary",
+                "check_name": "人工确认项",
+                "field_group": "summary",
+                "detail": str(item),
+                "reason_code": "LLM_MANUAL_CONFIRMATION",
+            })
+    final_report.manual_confirmation_items = manual_confirmation_items
     _save_intermediate(out_dir, "m6_final_report", final_report.model_dump())
 
     # 关键修复：显式进行 model_dump() 避免 Pydantic 500 序列化报错

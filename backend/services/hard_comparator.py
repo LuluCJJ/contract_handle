@@ -34,19 +34,27 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
         if e_cmp != d_cmp:
             checks.append(CheckResult(
                 check_name="公司证件号精确比对",
+                field_group="subject",
                 field_name="company_cert",
+                scenario_type=doc_ext.scenario_type,
+                check_mode="consistency",
                 source_a_label="EFlow", source_a_value=str(eflow.company.cert_number),
                 source_b_label=f"提取-{doc_type}", source_b_value=str(doc_ext.company.cert_number),
                 result="MISMATCH", severity=Severity.CRITICAL,
+                reason_code="COMPANY_CERT_MISMATCH",
                 detail=f"公司信用代码不一致"
             ))
         else:
             checks.append(CheckResult(
                 check_name="公司证件号精确比对",
+                field_group="subject",
                 field_name="company_cert",
+                scenario_type=doc_ext.scenario_type,
+                check_mode="consistency",
                 source_a_label="EFlow", source_a_value=str(eflow.company.cert_number),
                 source_b_label=f"提取-{doc_type}", source_b_value=str(doc_ext.company.cert_number),
                 result="MATCH", severity=Severity.PASS,
+                reason_code="COMPANY_CERT_MATCH",
                 detail="公司信用代码核对一致"
             ))
 
@@ -83,19 +91,30 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
                 if p.name or p.id_number:
                     checks.append(CheckResult(
                         check_name="证件实体收录核查",
+                        category="身份一致性",
+                        field_group="subject",
                         field_name="person_whitelist",
+                        scenario_type=doc_ext.scenario_type,
+                        check_mode="manual_confirmation",
                         source_a_label="EFlow配置名单", source_a_value=str(f"姓名池:{eflow_names}"),
                         source_b_label="OCR解析名字", source_b_value=str(p.name),
                         result="MISMATCH", severity=Severity.WARNING,
+                        manual_confirmation_required=True,
+                        reason_code="PERSON_NOT_IN_EFLOW_WHITELIST",
                         detail="发现不在 EFlow 审批名单内的持证人，请核实是否有未报备人员"
                     ))
             else:
                 checks.append(CheckResult(
                     check_name="证件白名单归属",
+                    category="身份一致性",
+                    field_group="subject",
                     field_name="person_whitelist",
+                    scenario_type=doc_ext.scenario_type,
+                    check_mode="consistency",
                     source_a_label="EFlow白名单", source_a_value="系统名册",
                     source_b_label="OCR身份", source_b_value=str(p.name or p.id_number),
                     result="MATCH", severity=Severity.PASS,
+                    reason_code="PERSON_IN_EFLOW_WHITELIST",
                     detail=f"证件实体 ({p.name}) 在审批范畴内"
                 ))
     
@@ -117,19 +136,27 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
                 if ef_acc != doc_acc:
                      checks.append(CheckResult(
                         check_name=f"操作员({doc_u.user_name})账号绑定校验",
+                        field_group="account",
                         field_name="user_account",
+                        scenario_type=doc_ext.scenario_type,
+                        check_mode="consistency",
                         source_a_label="EFlow下发", source_a_value=str(matched_ef_u.account_number),
                         source_b_label="表单填写", source_b_value=str(doc_u.account_number),
                         result="MISMATCH", severity=Severity.CRITICAL,
+                        reason_code="USER_ACCOUNT_MISMATCH",
                         detail="绑定账号与系统电子流账号打架，存在被篡改的重大合规风险"
                     ))
                 else:
                     checks.append(CheckResult(
                         check_name=f"操作员({doc_u.user_name})账号绑定校验",
+                        field_group="account",
                         field_name="user_account",
+                        scenario_type=doc_ext.scenario_type,
+                        check_mode="consistency",
                         source_a_label="EFlow下发", source_a_value=str(matched_ef_u.account_number),
                         source_b_label="表单填写", source_b_value=str(doc_u.account_number),
                         result="MATCH", severity=Severity.PASS,
+                        reason_code="USER_ACCOUNT_MATCH",
                         detail="绑定账号精准一致"
                     ))
 

@@ -75,6 +75,8 @@ class MediaInfo(BaseModel):
     media_number: str = ""
     is_blank: bool = False
     existing_media: str = ""   # 已有介质详情
+    is_physical: bool = False
+    needs_cancellation: bool = False
 
 class UserPermission(BaseModel):
     """单用户、单账号维度的完整权限包"""
@@ -93,6 +95,8 @@ class UserPermission(BaseModel):
     media: MediaInfo = Field(default_factory=MediaInfo)
     single_limit: float = 0.0
     daily_limit: float = 0.0
+    action_on_permission: str = ""
+    action_on_media: str = ""
 
 
 # === EFlow & 文档数据标准 ===
@@ -113,6 +117,10 @@ class DocExtractedData(BaseModel):
     source_file: str = ""        # 来源文件名
     source_type: str = ""        # "word" or "ocr"
     business_activity: str = ""  # 识别出的整体业务动作
+    scenario_type: str = ""      # OPEN / CANCEL / MODIFY / ATTACH / UNKNOWN
+    action_type: str = ""        # OPEN_PERMISSION / CANCEL_PERMISSION / OPEN_MEDIA / CANCEL_MEDIA / UNKNOWN
+    action_summary: str = ""
+    evidence_summary: str = ""
     company: CompanyInfo = Field(default_factory=CompanyInfo)
     # OCR主要提取这个
     persons: List[PersonInfo] = Field(default_factory=list)
@@ -132,13 +140,18 @@ class Severity(str, Enum):
 class CheckResult(BaseModel):
     check_name: str
     category: str = "基本要素核对" # 默认为基本要素，支持：身份一致性、合规完整性、业务要素核对
+    field_group: str = ""
     field_name: str = ""
+    scenario_type: str = ""
+    check_mode: str = ""
     source_a_label: str = "EFlow基准"
     source_a_value: str = ""
     source_b_label: str = "目标文档"
     source_b_value: str = ""
     result: str = ""  # "MATCH" / "MISMATCH"
     severity: Severity = Severity.PASS
+    manual_confirmation_required: bool = False
+    reason_code: str = ""
     detail: str = ""
     evidence: str = ""
 
@@ -165,3 +178,5 @@ class AuditReport(BaseModel):
     cross_validation_checks: List[CheckResult] = Field(default_factory=list)
     summary: str = ""
     llm_summary: dict = Field(default_factory=dict)
+    manual_confirmation_items: List[Dict[str, Any]] = Field(default_factory=list)
+    scenario_summary: str = ""

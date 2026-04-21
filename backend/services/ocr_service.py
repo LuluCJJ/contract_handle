@@ -140,6 +140,8 @@ def _get_ocr():
             base_kw = {
                 "text_detection_model_dir": det_p,
                 "text_recognition_model_dir": rec_p,
+                "use_doc_orientation_classify": False,
+                "use_doc_unwarping": False,
                 "use_textline_orientation": False, # CLS often causes unhashable type errors
                 "enable_mkldnn": False
             }

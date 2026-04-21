@@ -14,7 +14,7 @@ from backend.config import get_config
 # === COMPANY INTERNAL PROXY CONFIG - REMAIN FIXED ===
 # Ensure internal domains bypass the proxy to avoid handshake/routing issues
 os.environ["NO_PROXY"] = "localhost,127.0.0.1,.huawei.com,.rnd.huawei.com,oneapi.rnd.huawei.com"
-httpx_client = httpx.Client(verify=False, timeout=300)
+httpx_client = httpx.Client(verify=False, timeout=300, trust_env=False)
 
 def get_llm_client() -> OpenAI:
     cfg = get_config()
@@ -82,17 +82,19 @@ def _chat_requests(cfg, system_prompt: str, user_prompt: str) -> str:
         "messages": messages
     }
     
+    session = requests.Session()
+    session.trust_env = False
+
     try:
         print(f"[LLM] Sending Request (Requests-mode) to: {target.api_base}")
         print(f"[LLM] Auth Prefix: {auth_header[:10]}...")
         
-        response = requests.post(
+        response = session.post(
             target.api_base, 
             headers=headers, 
             json=data, 
             verify=False, # Mandatory for internal SSL/Internal endpoints
             timeout=300,
-            proxies={"http": None, "https": None} # Double safety to ensure no proxy for internal nodes
         )
         
         if response.status_code != 200:
@@ -130,8 +132,11 @@ def _chat_vision_requests(cfg, system_prompt: str, base64_image: str) -> str:
     ]
     data = {"model": target.model_name if target.model_name else "auto", "messages": messages}
     
+    session = requests.Session()
+    session.trust_env = False
+    
     try:
-        response = requests.post(target.api_base, headers=headers, json=data, verify=False, timeout=300, proxies={"http": None, "https": None})
+        response = session.post(target.api_base, headers=headers, json=data, verify=False, timeout=300)
         if response.status_code != 200:
             print(f"[LLM] Vision HTTP ERROR {response.status_code}: {response.text[:500]}")
             return ""
@@ -222,7 +227,7 @@ def test_connection() -> dict:
             temperature=0.0
         )
         
-        if reply and "OK" in reply.upper():
+        if reply and "OK" in reply.upper() and not reply.strip().startswith("Exception:") and not reply.strip().startswith("Error:"):
             active_cfg = getattr(cfg.llm, cfg.llm.api_type)
             return {
                 "status": "ok",

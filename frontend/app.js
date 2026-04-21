@@ -108,7 +108,8 @@ function renderV15Report(rp) {
         document.getElementById('status-icon').innerHTML  = `<i class='${info.icon}'></i>`;
         document.getElementById('status-title').innerText = info.title;
         const docCount = (rp.document_reports || []).length;
-        document.getElementById('status-desc').innerText  = `任务ID: ${rp.task_id} | ${docCount} 份文档 | 智感分析已完成`;
+        const scenarioText = rp.scenario_summary ? ` | ${rp.scenario_summary}` : '';
+        document.getElementById('status-desc').innerText  = `任务ID: ${rp.task_id} | ${docCount} 份文档${scenarioText}`;
     }
 
     // 2. AI 风险洞察
@@ -133,6 +134,16 @@ function renderRiskInsights(llmSummary) {
     if (!llmSummary || !llmSummary.aggregator_summary) { card.style.display = 'none'; return; }
     card.style.display = 'block';
 
+    const scenarioNode = document.getElementById('scenario-summary');
+    if (scenarioNode) {
+        if (llmSummary.scenario_summary) {
+            scenarioNode.style.display = 'block';
+            scenarioNode.innerHTML = `<strong>场景摘要：</strong>${llmSummary.scenario_summary}`;
+        } else {
+            scenarioNode.style.display = 'none';
+        }
+    }
+
     const aggNode = document.getElementById('aggregator-text');
     if (aggNode) aggNode.innerText = llmSummary.aggregator_summary;
 
@@ -141,6 +152,26 @@ function renderRiskInsights(llmSummary) {
     riskList.innerHTML = (llmSummary.risk_insights || []).map(r =>
         `<div class="insight-card"><i class="ri-error-warning-fill insight-icon"></i><span>${r}</span></div>`
     ).join('');
+
+    const manualList = document.getElementById('manual-confirmation-list');
+    if (manualList) {
+        const items = llmSummary.manual_confirmation_items || [];
+        if (items.length > 0) {
+            manualList.style.display = 'block';
+            manualList.innerHTML = `
+                <div style="font-size:12px; font-weight:700; color:#92400e; margin-bottom:8px;">需人工确认</div>
+                ${items.map(item => `
+                    <div class="manual-confirm-card">
+                        <i class="ri-user-search-line manual-confirm-icon"></i>
+                        <span>${item}</span>
+                    </div>
+                `).join('')}
+            `;
+        } else {
+            manualList.style.display = 'none';
+            manualList.innerHTML = '';
+        }
+    }
 }
 
 // --- 2.2 EFlow 手风琴（复用文档组件 + 摘要副标题）---
@@ -279,6 +310,8 @@ function renderDocAccordion(reports) {
             }
         } else {
             keyFields = [
+                ['场景识别', ed.scenario_type || '/'],
+                ['动作识别', ed.action_type || '/'],
                 ['业务动作', ed.business_activity || '/'],
                 ['公司名称', ed.company?.name || '/'],
                 ['操作员',   (ed.users || []).map(u => u.user_name).filter(Boolean).join(', ') || '/'],
@@ -421,12 +454,26 @@ function renderCheckItem(c, docName) {
             <div><span class="diff-label">${c.source_a_label || 'EFlow 基准'}</span><div class="diff-val">${c.source_a_value || '/'}</div></div>
             <div><span class="diff-label" title="${srcLabel}" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">📄 ${srcLabel}</span><div class="diff-val diff-mismatch">${c.source_b_value || '/'}</div></div>
         </div>` : '';
+    const metaBits = [
+        c.field_group ? `字段簇: ${c.field_group}` : '',
+        c.check_mode ? `检查方式: ${c.check_mode}` : '',
+        c.scenario_type ? `场景: ${c.scenario_type}` : '',
+        c.reason_code ? `规则码: ${c.reason_code}` : ''
+    ].filter(Boolean);
+    const metaHtml = metaBits.length > 0
+        ? `<div class="check-meta-row">${metaBits.map(t => `<span class="check-meta-badge">${t}</span>`).join('')}</div>`
+        : '';
+    const manualHtml = c.manual_confirmation_required
+        ? `<div class="manual-confirm-inline"><i class="ri-user-search-line"></i><span>需人工确认</span></div>`
+        : '';
     return `
         <div class="check-item sev-${sev}">
             <div class="check-item-header">
                 <span class="check-item-name">${c.check_name}</span>
                 <span class="sev-badge sev-badge-${sev}">${c.severity}</span>
             </div>
+            ${metaHtml}
+            ${manualHtml}
             ${c.detail ? `<div class="check-item-detail">${c.detail}</div>` : ''}
             ${diffHtml}
         </div>`;
