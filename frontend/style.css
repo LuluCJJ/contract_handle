@@ -234,7 +234,465 @@ body {
 }
 .diff-value { font-family: 'Consolas', monospace; font-size: 13px; color: #1890ff !important; }
 
-/* 顶部导航拦截 */
+/* 问题驱动报告工作台 */
+.issue-board-card,
+.audit-detail-card {
+    margin-bottom: 20px;
+}
+
+.issue-board-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.issue-board-header h2 {
+    margin-right: auto;
+}
+
+.issue-board-header span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.issue-board-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.issue-board-summary-simple {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.issue-board-hint {
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-bottom: 12px;
+    padding: 9px 12px;
+}
+
+.issue-expand-btn {
+    background: #ffffff;
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    margin-left: 8px;
+    padding: 4px 10px;
+}
+
+.issue-expand-btn:hover {
+    background: #eff6ff;
+}
+
+.issue-board-summary span {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    color: #475569;
+    font-size: 12px;
+    padding: 10px 12px;
+}
+
+.issue-board-summary strong {
+    color: #0f172a;
+    font-size: 20px;
+    margin-right: 4px;
+}
+
+.issue-card-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.issue-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #94a3b8;
+    border-radius: 10px;
+    padding: 14px;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.issue-card.sev-critical { border-left-color: #ef4444; background: linear-gradient(90deg, #fff7f7, #ffffff 38%); }
+.issue-card.sev-warning { border-left-color: #f59e0b; background: linear-gradient(90deg, #fffbeb, #ffffff 38%); }
+.issue-card.sev-info { border-left-color: #6366f1; background: linear-gradient(90deg, #eef2ff, #ffffff 38%); }
+
+.manual-summary-card {
+    align-items: flex-start;
+    background: #fff7ed;
+    border-left: 3px solid #d97706;
+    border-radius: 0 6px 6px 0;
+    color: #7c2d12;
+    display: flex;
+    font-size: 13px;
+    gap: 10px;
+    line-height: 1.5;
+    margin-top: 7px;
+    padding: 9px 14px;
+}
+
+.issue-card-topline,
+.issue-meta-row,
+.issue-actions,
+.evidence-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.issue-severity-pill,
+.issue-manual-pill,
+.issue-doc-name,
+.issue-meta-row span,
+.evidence-meta span {
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+}
+
+.issue-severity-pill { background: #e0f2fe; color: #075985; }
+.issue-manual-pill { background: #ffedd5; color: #9a3412; }
+.issue-doc-name { background: #f1f5f9; color: #475569; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.issue-meta-row span,
+.evidence-meta span { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+
+.issue-title {
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.45;
+    margin-top: 10px;
+}
+
+.issue-detail {
+    color: #475569;
+    font-size: 13px;
+    line-height: 1.6;
+    margin-top: 8px;
+}
+
+.issue-meta-row {
+    margin-top: 10px;
+}
+
+.issue-action {
+    background: #f8fafc;
+    border-radius: 8px;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+    margin-top: 10px;
+    padding: 8px 10px;
+}
+
+.issue-actions {
+    margin-top: 12px;
+}
+
+.issue-actions button,
+.check-evidence-btn {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #1d4ed8;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 700;
+    gap: 5px;
+    padding: 6px 10px;
+}
+
+.issue-actions button:hover,
+.check-evidence-btn:hover {
+    background: #eff6ff;
+    border-color: #60a5fa;
+}
+
+.issue-empty-state {
+    align-items: flex-start;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 10px;
+    color: #166534;
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+}
+
+.issue-empty-state i {
+    font-size: 24px;
+}
+
+.issue-empty-state p {
+    color: #166534;
+    font-size: 13px;
+    line-height: 1.6;
+    margin-top: 4px;
+}
+
+/* 证据服务层 */
+.evidence-drawer {
+    background: #ffffff;
+    border: 1px solid #bfdbfe;
+    border-radius: 12px;
+    box-shadow: 0 18px 40px rgba(30, 64, 175, 0.12);
+    max-height: calc(100vh - 96px);
+    overflow: hidden;
+    position: fixed;
+    right: 28px;
+    top: 78px;
+    width: min(520px, calc(100vw - 56px));
+    z-index: 1800;
+}
+
+.evidence-drawer-header {
+    align-items: center;
+    background: linear-gradient(135deg, #eff6ff, #ffffff);
+    border-bottom: 1px solid #dbeafe;
+    display: flex;
+    justify-content: space-between;
+    padding: 16px 18px;
+}
+
+.evidence-eyebrow {
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+}
+
+.evidence-drawer-header h3 {
+    color: #0f172a;
+    font-size: 17px;
+    margin: 0;
+}
+
+.btn-close-evidence {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #dbeafe;
+    border-radius: 999px;
+    color: #475569;
+    cursor: pointer;
+    display: flex;
+    height: 30px;
+    justify-content: center;
+    width: 30px;
+}
+
+.evidence-drawer-body {
+    max-height: calc(100vh - 180px);
+    overflow: auto;
+    padding: 18px;
+}
+
+.evidence-risk {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-bottom: 14px;
+    padding: 12px;
+}
+
+.evidence-risk-title {
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+
+.evidence-risk-detail {
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.65;
+}
+
+.evidence-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.evidence-field {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.evidence-field label {
+    color: #64748b;
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 7px;
+}
+
+.evidence-field div {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.5;
+    word-break: break-all;
+}
+
+.evidence-meta {
+    margin-bottom: 12px;
+}
+
+.evidence-manual {
+    align-items: center;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 8px;
+    color: #9a3412;
+    display: flex;
+    font-size: 13px;
+    font-weight: 700;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+}
+
+.evidence-section h4 {
+    color: #0f172a;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.evidence-section pre {
+    background: #0f172a;
+    border-radius: 10px;
+    color: #e2e8f0;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.65;
+    max-height: 320px;
+    overflow: auto;
+    padding: 14px;
+    white-space: pre-wrap;
+}
+
+.check-evidence-btn {
+    margin-top: 8px;
+}
+
+.business-context-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.business-context-item {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.business-context-item label {
+    color: #1d4ed8;
+    display: block;
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 6px;
+}
+
+.business-context-item p {
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.65;
+    margin: 0;
+}
+
+.doc-fact-snapshot {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-bottom: 12px;
+    padding: 12px;
+}
+
+.doc-fact-title {
+    align-items: center;
+    color: #1e3a8a;
+    display: flex;
+    font-size: 13px;
+    font-weight: 800;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+.doc-fact-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.doc-fact-item {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px;
+}
+
+.doc-fact-item label {
+    color: #64748b;
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+.doc-fact-item span {
+    color: #0f172a;
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.45;
+    word-break: break-all;
+}
+
+@media (max-width: 1100px) {
+    .evidence-drawer {
+        left: 16px;
+        right: 16px;
+        top: 70px;
+        width: auto;
+    }
+
+    .issue-card-grid,
+    .evidence-grid,
+    .business-context-summary,
+    .doc-fact-grid,
+    .extraction-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .issue-board-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* 顶部导航固定 */
 .glass-header {
     background: #001529 !important;
     height: 60px;

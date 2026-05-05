@@ -1,10 +1,16 @@
 const API_BASE = '/api/audit';
 const CFG_KEY = 'audit_llm_config_v2';
+const DEFAULT_PRIORITY_ISSUES = 8;
+let CURRENT_REPORT = null;
+let CURRENT_ISSUE_ITEMS = [];
+let CURRENT_BOARD_ITEMS = [];
+let ISSUE_BOARD_EXPANDED = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initSettings();
     initUploadHandlers();
     loadTestCases();
+    initReportInteractions();
 });
 
 // === 1. 基础 UI 交互 ===
@@ -90,6 +96,7 @@ async function runAudit(endpoint, formData, callback) {
 // === 3. 渲染引擎 V15.25 ===
 
 function renderV15Report(rp) {
+    CURRENT_REPORT = rp;
     const panel = document.getElementById('result-panel');
     if (panel) panel.style.display = 'block';
 
@@ -113,32 +120,337 @@ function renderV15Report(rp) {
     }
 
     // 2. AI 风险洞察
-    renderRiskInsights(rp.llm_summary);
+    renderRiskInsights(rp.llm_summary, rp);
 
-    // 3. EFlow 手风琴
-    renderEFlowAccordion(rp.eflow_data);
+    // 3. 建议优先复核事项：从结论进入证据与明细
+    renderPriorityIssueBoard(rp);
 
-    // 4. 文档解析手风琴（升级版）
-    renderDocAccordion(rp.document_reports);
-
-    // 5. 两级折叠审计明细
+    // 4. 两级折叠审计明细
     renderClusteredChecks(rp);
 
     window.scrollTo({ top: 300, behavior: 'smooth' });
 }
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+function normalizeSeverity(sev) {
+    return String(sev || 'PASS').toUpperCase();
+}
+
+function severityRank(sev) {
+    const s = normalizeSeverity(sev);
+    if (s === 'CRITICAL') return 0;
+    if (s === 'WARNING') return 1;
+    if (s === 'INFO') return 2;
+    return 3;
+}
+
+function coreFieldRank(check) {
+    const group = String(check.field_group || '').toLowerCase();
+    const name = String(check.field_name || '').toLowerCase();
+    const reason = String(check.reason_code || '').toLowerCase();
+    if (['business_scenario', 'account', 'permission', 'media', 'subject', 'platform'].includes(group)) return 0;
+    if (['account', 'permission', 'media', 'scenario', 'person', 'cert', 'id', 'platform'].some(k => name.includes(k) || reason.includes(k))) return 1;
+    return 2;
+}
+
+function priorityScore(item) {
+    const c = item.check || {};
+    return severityRank(c.severity) * 100
+        + coreFieldRank(c) * 10
+        + (c.manual_confirmation_required ? 0 : 4);
+}
+
+function severityLabel(sev) {
+    const s = normalizeSeverity(sev);
+    return {
+        CRITICAL: '重点风险',
+        WARNING: '风险提示',
+        INFO: '优化建议',
+        PASS: '已通过'
+    }[s] || s;
+}
+
+function issueActionText(check) {
+    if (check.manual_confirmation_required) return '建议人工确认后再按原流程办理';
+    const sev = normalizeSeverity(check.severity);
+    if (sev === 'CRITICAL') return '建议优先核实并补充/修正';
+    if (sev === 'WARNING') return '建议审核人重点复核';
+    return '可作为材料优化参考';
+}
+
+function collectIssueItems(report) {
+    const items = [];
+    (report.document_reports || []).forEach(doc => {
+        const checks = [...(doc.hard_checks || []), ...(doc.semantic_checks || [])];
+        checks.forEach(check => {
+            if (normalizeSeverity(check.severity) === 'PASS') return;
+            items.push({
+                doc_name: doc.doc_name || '未知文档',
+                doc_type: doc.doc_type || '',
+                extracted_data: doc.extracted_data || {},
+                check,
+                priority: severityRank(check.severity)
+            });
+        });
+    });
+
+    (report.cross_validation_checks || []).forEach(check => {
+        if (normalizeSeverity(check.severity) === 'PASS') return;
+        items.push({
+            doc_name: '跨文档检查',
+            doc_type: 'cross_validation',
+            extracted_data: {},
+            check,
+            priority: severityRank(check.severity)
+        });
+    });
+
+    const seen = new Set();
+    const deduped = [];
+    items.sort((a, b) => a.priority - b.priority).forEach(item => {
+        const c = item.check || {};
+        const key = [
+            item.doc_name,
+            c.reason_code || c.check_name || '',
+            c.field_group || '',
+            c.field_name || '',
+            String(c.detail || '').slice(0, 80)
+        ].join('|');
+        if (seen.has(key)) return;
+        seen.add(key);
+        deduped.push(item);
+    });
+    return deduped;
+}
+
+function pickBoardIssues(items) {
+    const sorted = [...items].sort((a, b) => priorityScore(a) - priorityScore(b));
+    return ISSUE_BOARD_EXPANDED ? sorted : sorted.slice(0, DEFAULT_PRIORITY_ISSUES);
+}
+
+function toggleIssueBoardExpanded() {
+    ISSUE_BOARD_EXPANDED = !ISSUE_BOARD_EXPANDED;
+    if (CURRENT_REPORT) renderPriorityIssueBoard(CURRENT_REPORT);
+}
+
+function renderPriorityIssueBoard(report) {
+    const container = document.getElementById('priority-issue-board');
+    if (!container) return;
+    CURRENT_REPORT = report;
+
+    CURRENT_ISSUE_ITEMS = collectIssueItems(report);
+    CURRENT_BOARD_ITEMS = pickBoardIssues(CURRENT_ISSUE_ITEMS);
+    closeEvidenceDrawer();
+
+    if (CURRENT_BOARD_ITEMS.length === 0) {
+        container.innerHTML = `
+            <div class="issue-empty-state">
+                <i class="ri-checkbox-circle-line"></i>
+                <div>
+                    <strong>未发现需要优先复核的事项</strong>
+                    <p>系统没有识别到重点风险、风险提示或人工确认项，可按需展开完整审计明细复核每份文件的抽取事实和规则命中。</p>
+                </div>
+            </div>`;
+        return;
+    }
+
+    const total = CURRENT_ISSUE_ITEMS.length;
+    const shown = CURRENT_BOARD_ITEMS.length;
+    const hidden = Math.max(CURRENT_ISSUE_ITEMS.length - CURRENT_BOARD_ITEMS.length, 0);
+    const expandButton = hidden > 0 || ISSUE_BOARD_EXPANDED
+        ? `<button type="button" class="issue-expand-btn" onclick="toggleIssueBoardExpanded()">${ISSUE_BOARD_EXPANDED ? '收起为优先事项' : `展开其余 ${hidden} 项`}</button>`
+        : '';
+
+    const cards = CURRENT_BOARD_ITEMS.map((item) => {
+        const c = item.check;
+        const sev = normalizeSeverity(c.severity).toLowerCase();
+        const evidenceIndex = CURRENT_ISSUE_ITEMS.indexOf(item);
+        return `
+            <div class="issue-card sev-${sev}">
+                <div class="issue-card-topline">
+                    <span class="issue-severity-pill">${severityLabel(c.severity)}</span>
+                    ${c.manual_confirmation_required ? '<span class="issue-manual-pill">需人工确认</span>' : ''}
+                    <span class="issue-doc-name" title="${escapeHtml(item.doc_name)}">${escapeHtml(item.doc_name)}</span>
+                </div>
+                <div class="issue-title">${escapeHtml(c.check_name || '未命名检查项')}</div>
+                <div class="issue-detail">${escapeHtml(c.detail || '暂无详细说明')}</div>
+                <div class="issue-meta-row">
+                    ${c.field_group ? `<span>字段簇：${escapeHtml(c.field_group)}</span>` : ''}
+                    ${c.check_mode ? `<span>方式：${escapeHtml(c.check_mode)}</span>` : ''}
+                    ${c.reason_code ? `<span>规则码：${escapeHtml(c.reason_code)}</span>` : ''}
+                </div>
+                <div class="issue-action">${escapeHtml(issueActionText(c))}</div>
+                <div class="issue-actions">
+                    <button type="button" onclick="showEvidence(${evidenceIndex})"><i class="ri-search-eye-line"></i> 查看依据</button>
+                </div>
+            </div>`;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="issue-board-summary issue-board-summary-simple">
+            <span><strong>${total}</strong> 全部需关注事项</span>
+            <span><strong>${shown}</strong> 当前优先展示</span>
+        </div>
+        <div class="issue-board-hint">
+            <strong>排序依据：</strong>风险影响程度、是否需要人工确认、是否涉及核心字段（业务场景、主体、账号、权限、介质、平台、证件有效期）。
+            ${hidden > 0 ? `默认收起 ${hidden} 项低优先级事项。` : '当前已展示全部需关注事项。'}
+            这里是辅助排序，不改变原有业务办理链路；完整底稿仍以下方审计明细为准。
+            ${expandButton}
+        </div>
+        <div class="issue-card-grid">${cards}</div>`;
+}
+
+function buildEvidenceSnippet(item) {
+    const c = item.check || {};
+    const ed = item.extracted_data || {};
+    const raw = ed.evidence_summary || ed.action_summary || ed.raw_text || '';
+    if (!raw) return '暂无可展示的解析依据。';
+    return String(raw).slice(0, 2200);
+}
+
+function showEvidence(index) {
+    const item = CURRENT_ISSUE_ITEMS[index];
+    if (!item) return;
+
+    const drawer = document.getElementById('evidence-drawer');
+    const title = document.getElementById('evidence-title');
+    const content = document.getElementById('evidence-content');
+    if (!drawer || !title || !content) return;
+
+    const c = item.check || {};
+    title.innerText = c.check_name || '查看依据';
+    content.innerHTML = `
+        <div class="evidence-section evidence-risk">
+            <div class="evidence-risk-title">${escapeHtml(severityLabel(c.severity))}</div>
+            <div class="evidence-risk-detail">${escapeHtml(c.detail || '暂无检查说明')}</div>
+        </div>
+        <div class="evidence-grid">
+            <div class="evidence-field">
+                <label>${escapeHtml(c.source_a_label || 'EFlow 基准')}</label>
+                <div>${escapeHtml(c.source_a_value || '/')}</div>
+            </div>
+            <div class="evidence-field">
+                <label>${escapeHtml(c.source_b_label || item.doc_name || '文档抽取')}</label>
+                <div>${escapeHtml(c.source_b_value || '/')}</div>
+            </div>
+        </div>
+        <div class="evidence-meta">
+            <span>来源文档：${escapeHtml(item.doc_name)}</span>
+            ${c.field_group ? `<span>字段簇：${escapeHtml(c.field_group)}</span>` : ''}
+            ${c.field_name ? `<span>字段：${escapeHtml(c.field_name)}</span>` : ''}
+            ${c.check_mode ? `<span>检查方式：${escapeHtml(c.check_mode)}</span>` : ''}
+            ${c.scenario_type ? `<span>场景：${escapeHtml(c.scenario_type)}</span>` : ''}
+            ${c.reason_code ? `<span>规则码：${escapeHtml(c.reason_code)}</span>` : ''}
+        </div>
+        ${c.manual_confirmation_required ? '<div class="evidence-manual"><i class="ri-user-search-line"></i> 该事项需要人工确认，系统仅作辅助提示。</div>' : ''}
+        <div class="evidence-section">
+            <h4>解析依据 / 原文片段</h4>
+            <pre>${escapeHtml(buildEvidenceSnippet(item))}</pre>
+        </div>`;
+
+    drawer.style.display = 'block';
+}
+
+function closeEvidenceDrawer() {
+    const drawer = document.getElementById('evidence-drawer');
+    if (drawer) drawer.style.display = 'none';
+}
+
+function getEvidenceIndexForCheck(check, docName) {
+    return CURRENT_ISSUE_ITEMS.findIndex(item =>
+        item.check === check || (
+            item.doc_name === docName &&
+            item.check.check_name === check.check_name &&
+            item.check.reason_code === check.reason_code &&
+            item.check.field_name === check.field_name
+        )
+    );
+}
+
+function initReportInteractions() {
+    const closeEvidence = document.getElementById('btn-close-evidence');
+    if (closeEvidence) closeEvidence.onclick = closeEvidenceDrawer;
+}
+
 // --- 2.1 AI 风险洞察卡片 ---
-function renderRiskInsights(llmSummary) {
+function compactList(values, fallback = '未识别') {
+    const cleaned = values.filter(Boolean).map(v => String(v).trim()).filter(Boolean);
+    const unique = [...new Set(cleaned)];
+    if (unique.length === 0) return fallback;
+    if (unique.length <= 3) return unique.join('、');
+    return `${unique.slice(0, 3).join('、')} 等 ${unique.length} 项`;
+}
+
+function describeEflowBusiness(ef) {
+    if (!ef) return '电子流基准事实未返回。';
+    const users = ef.users || [];
+    const userNames = compactList(users.map(u => u.user_name), '未识别名义用户');
+    const accounts = compactList(users.map(u => u.account_number), '未识别账户');
+    const permissions = compactList(users.flatMap(u => {
+        const sc = u.permission_scope || {};
+        return [
+            sc.authorize ? '授权' : '',
+            sc.payment ? '支付' : '',
+            sc.query ? '查询' : '',
+            sc.upload ? '上传' : ''
+        ];
+    }), '未识别权限');
+    const media = compactList(users.map(u => u.media?.media_type), '未识别介质');
+    const scenario = compactList([ef.business_type, ef.business_scenario], '未识别业务场景');
+    const platform = compactList([ef.platform?.bank_name, ef.platform?.platform_name], '未识别平台');
+    return `电子流基准显示：本次拟办理 ${scenario}，涉及 ${platform}，名义用户 ${userNames}，账户 ${accounts}，权限 ${permissions}，介质 ${media}。`;
+}
+
+function describeDocsBusiness(reports) {
+    const docs = reports || [];
+    if (docs.length === 0) return '未返回申请材料解析结果。';
+    const scenarios = compactList(docs.map(d => d.extracted_data?.scenario_type), '未识别文档场景');
+    const actions = compactList(docs.map(d => d.extracted_data?.action_type), '未识别文档动作');
+    const summaries = docs
+        .map(d => d.extracted_data?.action_summary || d.extracted_data?.business_activity)
+        .filter(Boolean);
+    const summaryText = compactList(summaries, '文档未形成明确业务摘要');
+    return `材料解析显示：上传材料共 ${docs.length} 份，文档侧主要识别为 ${scenarios} / ${actions}，业务表述为：${summaryText}。`;
+}
+
+function renderBusinessContextSummary(report) {
+    const node = document.getElementById('business-context-summary');
+    if (!node) return;
+    node.style.display = 'grid';
+    node.innerHTML = `
+        <div class="business-context-item">
+            <label>电子流应办理</label>
+            <p>${escapeHtml(describeEflowBusiness(report.eflow_data))}</p>
+        </div>
+        <div class="business-context-item">
+            <label>材料实际说明</label>
+            <p>${escapeHtml(describeDocsBusiness(report.document_reports))}</p>
+        </div>`;
+}
+
+function renderRiskInsights(llmSummary, report) {
     const card = document.getElementById('llm-summary-card');
     if (!card) return;
-    if (!llmSummary || !llmSummary.aggregator_summary) { card.style.display = 'none'; return; }
+    if (!llmSummary || !llmSummary.aggregator_summary) {
+        card.style.display = 'none';
+        return;
+    }
     card.style.display = 'block';
+    renderBusinessContextSummary(report || CURRENT_REPORT || {});
 
     const scenarioNode = document.getElementById('scenario-summary');
     if (scenarioNode) {
         if (llmSummary.scenario_summary) {
             scenarioNode.style.display = 'block';
-            scenarioNode.innerHTML = `<strong>场景摘要：</strong>${llmSummary.scenario_summary}`;
+            scenarioNode.innerHTML = `<strong>场景摘要：</strong>${escapeHtml(llmSummary.scenario_summary)}`;
         } else {
             scenarioNode.style.display = 'none';
         }
@@ -148,10 +460,12 @@ function renderRiskInsights(llmSummary) {
     if (aggNode) aggNode.innerText = llmSummary.aggregator_summary;
 
     const riskList = document.getElementById('llm-risk-insights');
-    if (!riskList) return;
-    riskList.innerHTML = (llmSummary.risk_insights || []).map(r =>
-        `<div class="insight-card"><i class="ri-error-warning-fill insight-icon"></i><span>${r}</span></div>`
-    ).join('');
+    if (riskList) {
+        const insights = (llmSummary.risk_insights || []).slice(0, 3);
+        riskList.innerHTML = insights.map(r =>
+            `<div class="insight-card"><i class="ri-error-warning-fill insight-icon"></i><span>${escapeHtml(r)}</span></div>`
+        ).join('');
+    }
 
     const manualList = document.getElementById('manual-confirmation-list');
     if (manualList) {
@@ -159,13 +473,10 @@ function renderRiskInsights(llmSummary) {
         if (items.length > 0) {
             manualList.style.display = 'block';
             manualList.innerHTML = `
-                <div style="font-size:12px; font-weight:700; color:#92400e; margin-bottom:8px;">需人工确认</div>
-                ${items.map(item => `
-                    <div class="manual-confirm-card">
-                        <i class="ri-user-search-line manual-confirm-icon"></i>
-                        <span>${item}</span>
-                    </div>
-                `).join('')}
+                <div class="manual-summary-card">
+                    <i class="ri-user-search-line manual-confirm-icon"></i>
+                    <span>共 ${items.length} 项建议人工确认，具体事项已进入下方“建议优先复核事项”和“完整审计明细”。</span>
+                </div>
             `;
         } else {
             manualList.style.display = 'none';
@@ -320,7 +631,7 @@ function renderDocAccordion(reports) {
         }
 
         const badges = [
-            critical > 0 ? `<span class="badge-critical">${critical} 高风险</span>` : '',
+            critical > 0 ? `<span class="badge-critical">${critical} 重点风险</span>` : '',
             warning  > 0 ? `<span class="badge-warning">${warning} 警告</span>` : '',
             infoN    > 0 ? `<span class="badge-info">${infoN} 提示</span>` : '',
             (critical === 0 && warning === 0 && infoN === 0) ? `<span class="badge-pass">通过</span>` : ''
@@ -385,10 +696,12 @@ function renderClusteredChecks(rp) {
         });
 
         const docBadges = [
-            critical > 0 ? `<span class="badge-critical">${critical} 高风险</span>` : '',
+            critical > 0 ? `<span class="badge-critical">${critical} 重点风险</span>` : '',
             warning  > 0 ? `<span class="badge-warning">${warning} 警告</span>` : '',
-            (critical === 0 && warning === 0) ? `<span class="badge-pass">无高风险</span>` : ''
+            (critical === 0 && warning === 0) ? `<span class="badge-pass">暂无重点风险</span>` : ''
         ].join('');
+
+        const factsHtml = renderDocFactSnapshot(doc);
 
         let catHtml = '';
         for (const [cat, checks] of Object.entries(cats)) {
@@ -437,9 +750,51 @@ function renderClusteredChecks(rp) {
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">${docBadges}<i class="ri-arrow-down-s-line" style="color:#94a3b8;"></i></div>
             </div>
-            <div class="doc-check-content">${catHtml}</div>`;
+            <div class="doc-check-content">
+                ${factsHtml}
+                ${catHtml}
+            </div>`;
         container.appendChild(panel);
     });
+}
+
+function renderDocFactSnapshot(doc) {
+    const ed = doc.extracted_data || {};
+    const isOcr = doc.doc_type === 'ocr';
+    let facts = [];
+    if (isOcr) {
+        const persons = ed.persons || [];
+        facts = persons.length > 0
+            ? persons.flatMap(p => [
+                ['持证人', p.name || '/'],
+                ['证件号', p.id_number || '/'],
+                ['有效期', p.expiry_date || '/']
+            ])
+            : [['持证人', '/'], ['证件号', '/']];
+    } else {
+        const users = ed.users || [];
+        facts = [
+            ['场景识别', ed.scenario_type || '/'],
+            ['动作识别', ed.action_type || '/'],
+            ['业务动作', ed.business_activity || '/'],
+            ['公司名称', ed.company?.name || '/'],
+            ['操作员', compactList(users.map(u => u.user_name), '/')],
+            ['账户', compactList(users.map(u => u.account_number), '/')],
+            ['介质', compactList(users.map(u => u.media?.media_type), '/')]
+        ];
+    }
+
+    return `
+        <div class="doc-fact-snapshot">
+            <div class="doc-fact-title"><i class="ri-file-search-line"></i> 文件抽取事实</div>
+            <div class="doc-fact-grid">
+                ${facts.map(([k, v]) => `
+                    <div class="doc-fact-item">
+                        <label>${escapeHtml(k)}</label>
+                        <span>${escapeHtml(v)}</span>
+                    </div>`).join('')}
+            </div>
+        </div>`;
 }
 
 function renderCheckItem(c, docName) {
@@ -466,6 +821,10 @@ function renderCheckItem(c, docName) {
     const manualHtml = c.manual_confirmation_required
         ? `<div class="manual-confirm-inline"><i class="ri-user-search-line"></i><span>需人工确认</span></div>`
         : '';
+    const evidenceIndex = getEvidenceIndexForCheck(c, docName);
+    const evidenceActionHtml = evidenceIndex >= 0
+        ? `<button type="button" class="check-evidence-btn" onclick="showEvidence(${evidenceIndex})"><i class="ri-search-eye-line"></i> 查看依据</button>`
+        : '';
     return `
         <div class="check-item sev-${sev}">
             <div class="check-item-header">
@@ -476,6 +835,7 @@ function renderCheckItem(c, docName) {
             ${manualHtml}
             ${c.detail ? `<div class="check-item-detail">${c.detail}</div>` : ''}
             ${diffHtml}
+            ${evidenceActionHtml}
         </div>`;
 }
 
