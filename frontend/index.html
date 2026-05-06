@@ -157,16 +157,16 @@
 
             <div class='card glass-card issue-board-card'>
                 <div class='card-header issue-board-header'>
-                    <h2><i class='ri-focus-3-line'></i> 建议优先复核事项</h2>
-                    <span>按风险影响、人工确认和核心字段自动排序</span>
+                    <h2><i class='ri-dashboard-3-line'></i> 检查结果总览</h2>
+                    <span>先看哪些已一致，哪些需要审核人确认</span>
                 </div>
-                <div class='card-body' id='priority-issue-board'></div>
+                <div class='card-body' id='check-overview-board'></div>
             </div>
 
             <div class='evidence-drawer' id='evidence-drawer' style='display:none;'>
                 <div class='evidence-drawer-header'>
                     <div>
-                        <div class='evidence-eyebrow'>证据服务层</div>
+                        <div class='evidence-eyebrow'>证据预览</div>
                         <h3 id='evidence-title'>查看依据</h3>
                     </div>
                     <button class='btn-close-evidence' id='btn-close-evidence'><i class='ri-close-line'></i></button>
@@ -174,9 +174,45 @@
                 <div class='evidence-drawer-body' id='evidence-content'></div>
             </div>
 
-            <div class='card glass-card audit-detail-card'>
-                <div class='card-header'><h2><i class='ri-list-check-3'></i> 完整审计明细</h2></div>
-                <div class='card-body' id='check-list-container' style='padding:0;'></div>
+            <div class='feedback-modal' id='feedback-modal' style='display:none;'>
+                <div class='feedback-modal-inner'>
+                    <div class='feedback-modal-header'>
+                        <div>
+                            <div class='feedback-eyebrow'>运营反馈</div>
+                            <h3 id='feedback-title'>反馈检查结果</h3>
+                        </div>
+                        <button class='btn-close-evidence' onclick='closeFeedbackModal()'><i class='ri-close-line'></i></button>
+                    </div>
+                    <div class='feedback-modal-body'>
+                        <p id='feedback-desc' class='feedback-desc'></p>
+                        <label class='feedback-label'>反馈类型</label>
+                        <select id='feedback-type' class='modern-select feedback-select'>
+                            <option value='confirm_issue'>认可该问题</option>
+                            <option value='false_positive'>不是问题/误报</option>
+                            <option value='wrong_level'>问题类型或风险等级不准</option>
+                            <option value='field_mapping'>字段识别或映射需要调整</option>
+                            <option value='new_rule'>建议补充检查规则</option>
+                            <option value='evidence_unclear'>证据不清楚</option>
+                        </select>
+                        <label class='feedback-label'>业务备注</label>
+                        <textarea id='feedback-note' class='feedback-note' placeholder='例如：该银行模板中的“经办人”实际对应申请人，可作为字段映射配置沉淀。'></textarea>
+                    </div>
+                    <div class='feedback-modal-footer'>
+                        <button class='btn-secondary' onclick='closeFeedbackModal()'>取消</button>
+                        <button class='btn-primary' onclick='submitFeedbackCandidate()'>加入规则候选池</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class='card glass-card audit-detail-card compact-detail-card'>
+                <div class='card-header compact-detail-header' onclick="toggleAuditDetail()">
+                    <h2><i class='ri-list-check-3'></i> 查看全部检查明细</h2>
+                    <span>默认收起，仅在需要复核底稿时展开</span>
+                    <i class='ri-arrow-down-s-line'></i>
+                </div>
+                <div class='card-body audit-detail-body collapsed' id='audit-detail-body'>
+                    <div id='check-list-container' style='padding:0;'></div>
+                </div>
             </div>
         </section>
     </main>

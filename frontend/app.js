@@ -1,10 +1,11 @@
 const API_BASE = '/api/audit';
 const CFG_KEY = 'audit_llm_config_v2';
-const DEFAULT_PRIORITY_ISSUES = 8;
+const CHECK_GROUP_PREVIEW_LIMIT = 3;
 let CURRENT_REPORT = null;
 let CURRENT_ISSUE_ITEMS = [];
 let CURRENT_BOARD_ITEMS = [];
-let ISSUE_BOARD_EXPANDED = false;
+let CURRENT_FEEDBACK_INDEX = -1;
+let RULE_CANDIDATES = [];
 
 document.addEventListener('DOMContentLoaded', () => {
     initSettings();
@@ -122,11 +123,13 @@ function renderV15Report(rp) {
     // 2. AI 风险洞察
     renderRiskInsights(rp.llm_summary, rp);
 
-    // 3. 建议优先复核事项：从结论进入证据与明细
-    renderPriorityIssueBoard(rp);
+    // 3. 检查结果总览：用统计与少量预览降低业务用户阅读负担
+    renderCheckOverviewBoard(rp);
 
-    // 4. 两级折叠审计明细
+    // 4. 完整明细默认收起，仅作为底稿复核入口
     renderClusteredChecks(rp);
+    const detailBody = document.getElementById('audit-detail-body');
+    if (detailBody) detailBody.classList.add('collapsed');
 
     window.scrollTo({ top: 300, behavior: 'smooth' });
 }
@@ -176,6 +179,87 @@ function severityLabel(sev) {
         INFO: '优化建议',
         PASS: '已通过'
     }[s] || s;
+}
+
+function businessFieldLabel(check) {
+    const group = String(check.field_group || '').toLowerCase();
+    const name = String(check.field_name || '').toLowerCase();
+    const code = String(check.reason_code || '').toUpperCase();
+    if (group === 'business_scenario' || code.includes('SCENARIO')) return '办理事项';
+    if (group === 'permission' || name.includes('permission') || code.includes('SCOPE')) return '权限范围';
+    if (group === 'account' || name.includes('account')) return '账户信息';
+    if (group === 'media' || name.includes('media') || code.includes('TOKEN')) return '网银介质';
+    if (group === 'subject' || name.includes('subject') || code.includes('CERT')) return '企业/人员信息';
+    if (group === 'platform' || name.includes('platform')) return '网银平台';
+    if (name.includes('id') || code.includes('ID_')) return '证件信息';
+    return '申请材料信息';
+}
+
+function businessCheckTitle(check) {
+    const field = businessFieldLabel(check);
+    const code = String(check.reason_code || '').toUpperCase();
+    if (code.includes('SCENARIO')) return '办理事项不一致';
+    if (code.includes('SCOPE') || code.includes('PERMISSION')) return '权限范围需要复核';
+    if (code.includes('ACCOUNT')) return '账户信息需要复核';
+    if (code.includes('CERT')) return '企业信息需要复核';
+    if (code.includes('ID_EXPIRED')) return '证件有效期需要复核';
+    if (code.includes('INFO_MISSING')) return `${field}填写不完整`;
+    return check.check_name || `${field}需要复核`;
+}
+
+function businessDetailText(check) {
+    let text = String(check.detail || '系统发现该事项需要业务人员复核。');
+    const replacements = [
+        [/EFlow/g, '电子流'],
+        [/eflow/g, '电子流'],
+        [/authorize/g, '授权'],
+        [/payment/g, '支付'],
+        [/query/g, '查询'],
+        [/upload/g, '上传'],
+        [/OPEN/g, '开通'],
+        [/CANCEL/g, '注销'],
+        [/permission_scope/g, '权限范围'],
+        [/business_scenario/g, '办理事项'],
+        [/account/g, '账户'],
+        [/subject/g, '企业/人员信息'],
+        [/media/g, '介质'],
+        [/platform/g, '平台']
+    ];
+    replacements.forEach(([pattern, value]) => {
+        text = text.replace(pattern, value);
+    });
+    return text;
+}
+
+function formatBusinessValue(value) {
+    if (value === null || value === undefined || value === '') return '未填写或未识别';
+    if (typeof value === 'boolean') return value ? '是' : '否';
+    if (Array.isArray(value)) return value.map(formatBusinessValue).join('、') || '未填写或未识别';
+    if (typeof value === 'object') {
+        const permissionLabels = {
+            authorize: '授权',
+            payment: '支付',
+            query: '查询',
+            upload: '上传'
+        };
+        const enabled = Object.entries(value)
+            .filter(([, v]) => v === true)
+            .map(([k]) => permissionLabels[k] || k);
+        const disabledKnown = Object.keys(value).some(k => permissionLabels[k]);
+        if (enabled.length > 0 || disabledKnown) {
+            return enabled.length > 0 ? enabled.join('、') : '未包含授权/支付/查询/上传权限';
+        }
+        return Object.entries(value)
+            .map(([k, v]) => `${k}: ${formatBusinessValue(v)}`)
+            .join('、');
+    }
+    return String(value)
+        .replaceAll('authorize', '授权')
+        .replaceAll('payment', '支付')
+        .replaceAll('query', '查询')
+        .replaceAll('upload', '上传')
+        .replaceAll('OPEN', '开通')
+        .replaceAll('CANCEL', '注销');
 }
 
 function issueActionText(check) {
@@ -231,81 +315,296 @@ function collectIssueItems(report) {
     return deduped;
 }
 
-function pickBoardIssues(items) {
-    const sorted = [...items].sort((a, b) => priorityScore(a) - priorityScore(b));
-    return ISSUE_BOARD_EXPANDED ? sorted : sorted.slice(0, DEFAULT_PRIORITY_ISSUES);
+function collectAllCheckItems(report) {
+    const items = [];
+    (report.document_reports || []).forEach(doc => {
+        [...(doc.hard_checks || []), ...(doc.semantic_checks || [])].forEach(check => {
+            items.push({
+                doc_name: doc.doc_name || '未知文档',
+                doc_type: doc.doc_type || '',
+                extracted_data: doc.extracted_data || {},
+                check
+            });
+        });
+    });
+    (report.cross_validation_checks || []).forEach(check => {
+        items.push({
+            doc_name: '跨文档检查',
+            doc_type: 'cross_validation',
+            extracted_data: {},
+            check
+        });
+    });
+    return items;
 }
 
-function toggleIssueBoardExpanded() {
-    ISSUE_BOARD_EXPANDED = !ISSUE_BOARD_EXPANDED;
-    if (CURRENT_REPORT) renderPriorityIssueBoard(CURRENT_REPORT);
+function collectCheckStats(report) {
+    const checks = collectAllCheckItems(report);
+
+    const total = checks.length;
+    const pass = checks.filter(item => normalizeSeverity(item.check.severity) === 'PASS').length;
+    const manual = checks.filter(item =>
+        normalizeSeverity(item.check.severity) !== 'PASS' && item.check.manual_confirmation_required
+    ).length;
+    const mismatch = checks.filter(item =>
+        normalizeSeverity(item.check.severity) !== 'PASS' && !item.check.manual_confirmation_required
+    ).length;
+    const critical = checks.filter(item => normalizeSeverity(item.check.severity) === 'CRITICAL').length;
+    const warning = checks.filter(item => normalizeSeverity(item.check.severity) === 'WARNING').length;
+    const info = checks.filter(item => normalizeSeverity(item.check.severity) === 'INFO').length;
+    return { total, pass, mismatch, manual, critical, warning, info };
 }
 
-function renderPriorityIssueBoard(report) {
-    const container = document.getElementById('priority-issue-board');
+function renderCheckOverviewBoard(report) {
+    const container = document.getElementById('check-overview-board');
     if (!container) return;
-    CURRENT_REPORT = report;
 
+    CURRENT_REPORT = report;
     CURRENT_ISSUE_ITEMS = collectIssueItems(report);
-    CURRENT_BOARD_ITEMS = pickBoardIssues(CURRENT_ISSUE_ITEMS);
+    const allItems = collectAllCheckItems(report);
+    CURRENT_BOARD_ITEMS = allItems;
     closeEvidenceDrawer();
 
-    if (CURRENT_BOARD_ITEMS.length === 0) {
-        container.innerHTML = `
-            <div class="issue-empty-state">
-                <i class="ri-checkbox-circle-line"></i>
-                <div>
-                    <strong>未发现需要优先复核的事项</strong>
-                    <p>系统没有识别到重点风险、风险提示或人工确认项，可按需展开完整审计明细复核每份文件的抽取事实和规则命中。</p>
-                </div>
-            </div>`;
+    const stats = collectCheckStats(report);
+    const manualItems = allItems
+        .filter(item => normalizeSeverity(item.check.severity) !== 'PASS' && item.check.manual_confirmation_required)
+        .sort((a, b) => priorityScore(a) - priorityScore(b));
+    const riskItems = allItems
+        .filter(item => normalizeSeverity(item.check.severity) !== 'PASS' && !item.check.manual_confirmation_required)
+        .sort((a, b) => priorityScore(a) - priorityScore(b));
+    const passItems = allItems
+        .filter(item => normalizeSeverity(item.check.severity) === 'PASS')
+        .slice(0, 8);
+
+    const renderBusinessRows = (items, emptyText, opts = {}) => {
+        if (items.length === 0) {
+            return `<div class="business-check-empty">${escapeHtml(emptyText)}</div>`;
+        }
+        const expanded = opts.expanded === true;
+        const visibleItems = expanded ? items : items.slice(0, CHECK_GROUP_PREVIEW_LIMIT);
+        const rows = visibleItems.map(item => {
+            const c = item.check || {};
+            const sev = normalizeSeverity(c.severity).toLowerCase();
+            const evidenceIndex = CURRENT_ISSUE_ITEMS.findIndex(issue => issue.check === c);
+            const evidenceButton = evidenceIndex >= 0
+                ? `<button type="button" class="business-row-btn" onclick="showEvidence(${evidenceIndex})"><i class="ri-search-eye-line"></i> 看依据</button>`
+                : '';
+            const feedbackButton = evidenceIndex >= 0
+                ? `<button type="button" class="business-row-feedback" onclick="openFeedbackModal(${evidenceIndex})"><i class="ri-chat-check-line"></i> 反馈</button>`
+                : '';
+            return `
+                <div class="business-check-row sev-${sev}">
+                    <div class="business-row-main">
+                        <div class="business-row-title">${escapeHtml(businessCheckTitle(c))}</div>
+                        <div class="business-row-desc">${escapeHtml(businessDetailText(c))}</div>
+                        <div class="business-row-meta">
+                            <span>${escapeHtml(item.doc_name)}</span>
+                            <span>${escapeHtml(businessFieldLabel(c))}</span>
+                            ${opts.showAction ? `<span>${escapeHtml(issueActionText(c))}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="business-row-actions">
+                        <span class="business-status-pill">${escapeHtml(severityLabel(c.severity))}</span>
+                        ${c.manual_confirmation_required ? '<span class="business-manual-pill">审核人确认</span>' : ''}
+                        ${evidenceButton}
+                        ${feedbackButton}
+                    </div>
+                </div>`;
+        }).join('');
+        const hidden = items.length - visibleItems.length;
+        const more = hidden > 0
+            ? `<div class="business-check-more">还有 ${hidden} 项已收起，可在下方“查看全部检查明细”中复核。</div>`
+            : '';
+        return rows + more;
+    };
+
+    container.innerHTML = `
+        <div class="check-stat-grid">
+            <div class="check-stat-card stat-total">
+                <label>共检查</label>
+                <strong>${stats.total}</strong>
+                <span>项内容</span>
+            </div>
+            <div class="check-stat-card stat-pass">
+                <label>绿灯通过</label>
+                <strong>${stats.pass}</strong>
+                <span>项一致/通过</span>
+            </div>
+            <div class="check-stat-card stat-critical">
+                <label>发现不一致</label>
+                <strong>${stats.mismatch}</strong>
+                <span>项需要补充或修正</span>
+            </div>
+            <div class="check-stat-card stat-manual">
+                <label>审核人确认</label>
+                <strong>${stats.manual}</strong>
+                <span>项当前检查逻辑无法直接判断</span>
+            </div>
+        </div>
+        <div class="business-check-guidance">
+            <strong>阅读方式：</strong>
+            以下数量按互斥口径统计，同一项只归入一个类别。绿灯通过表示材料与电子流一致；审核人确认表示当前检查逻辑无法直接判断；发现不一致表示建议补充或修正。
+        </div>
+        <div class="business-check-section manual-section">
+            <div class="business-check-section-head">
+                <h3>需要审核人确认</h3>
+                <span>${manualItems.length} 项</span>
+            </div>
+            ${renderBusinessRows(manualItems, '当前没有需要审核人专门确认的事项。', { showAction: true })}
+        </div>
+        <div class="business-check-section risk-section">
+            <div class="business-check-section-head">
+                <h3>发现不一致或需要修正</h3>
+                <span>${riskItems.length} 项</span>
+            </div>
+            ${renderBusinessRows(riskItems, '当前没有发现明确不一致事项。', { showAction: true })}
+        </div>
+        <details class="business-check-section pass-section">
+            <summary>
+                <span>已确认一致/通过</span>
+                <strong>${stats.pass} 项</strong>
+            </summary>
+            ${renderBusinessRows(passItems, '暂无绿灯通过项。', { expanded: true })}
+            ${stats.pass > passItems.length ? `<div class="business-check-more">其余 ${stats.pass - passItems.length} 项已通过，完整底稿可在下方展开查看。</div>` : ''}
+        </details>
+        <div class="rule-candidate-panel" id="rule-candidate-panel" style="display:none;"></div>`;
+    renderRuleCandidatePanel();
+}
+
+function toggleAuditDetail() {
+    const body = document.getElementById('audit-detail-body');
+    if (body) body.classList.toggle('collapsed');
+}
+
+function classifyCandidateLane(type, check) {
+    const mode = String(check.check_mode || '').toLowerCase();
+    if (type === 'field_mapping') {
+        return {
+            lane: '业务配置类',
+            tag: 'config',
+            action: '字段别名、模板映射或提取优先级配置，业务确认后可快速更新。'
+        };
+    }
+    if (type === 'false_positive' || type === 'wrong_level' || type === 'new_rule' || mode.includes('semantic')) {
+        return {
+            lane: '规则/Prompt 类',
+            tag: 'rule',
+            action: '进入规则或提示词候选版本，需业务确认并用回归样本验证后灰度生效。'
+        };
+    }
+    if (type === 'evidence_unclear') {
+        return {
+            lane: '工程版本类',
+            tag: 'engineering',
+            action: '涉及证据定位、原文高亮或解析链路增强，建议进入产品版本需求池。'
+        };
+    }
+    return {
+        lane: '运营确认类',
+        tag: 'ops',
+        action: '作为正样本进入运营台账，用于评估规则命中质量。'
+    };
+}
+
+function feedbackTypeLabel(type) {
+    return {
+        confirm_issue: '认可该问题',
+        false_positive: '不是问题/误报',
+        wrong_level: '问题类型或风险等级不准',
+        field_mapping: '字段识别或映射需要调整',
+        new_rule: '建议补充检查规则',
+        evidence_unclear: '证据不清楚'
+    }[type] || type;
+}
+
+function openFeedbackModal(index) {
+    const item = CURRENT_ISSUE_ITEMS[index];
+    if (!item) return;
+    CURRENT_FEEDBACK_INDEX = index;
+    const modal = document.getElementById('feedback-modal');
+    const title = document.getElementById('feedback-title');
+    const desc = document.getElementById('feedback-desc');
+    const note = document.getElementById('feedback-note');
+    const type = document.getElementById('feedback-type');
+    if (!modal || !title || !desc || !note || !type) return;
+
+    const c = item.check || {};
+    title.innerText = c.check_name || '反馈检查结果';
+    desc.innerText = `${item.doc_name}｜${severityLabel(c.severity)}｜${businessDetailText(c)}`;
+    note.value = '';
+    type.value = c.manual_confirmation_required ? 'field_mapping' : 'confirm_issue';
+    modal.style.display = 'flex';
+}
+
+function closeFeedbackModal() {
+    const modal = document.getElementById('feedback-modal');
+    if (modal) modal.style.display = 'none';
+    CURRENT_FEEDBACK_INDEX = -1;
+}
+
+function submitFeedbackCandidate() {
+    const item = CURRENT_ISSUE_ITEMS[CURRENT_FEEDBACK_INDEX];
+    if (!item) return;
+    const typeNode = document.getElementById('feedback-type');
+    const noteNode = document.getElementById('feedback-note');
+    const feedbackType = typeNode ? typeNode.value : 'confirm_issue';
+    const note = noteNode ? noteNode.value.trim() : '';
+    const c = item.check || {};
+    const lane = classifyCandidateLane(feedbackType, c);
+
+    RULE_CANDIDATES.unshift({
+        id: Date.now(),
+        lane: lane.lane,
+        tag: lane.tag,
+        action: lane.action,
+        feedback_type: feedbackType,
+        note,
+        doc_name: item.doc_name,
+        check_name: businessCheckTitle(c),
+        field_group: businessFieldLabel(c),
+        reason_code: c.reason_code || '',
+        status: '待业务确认'
+    });
+    RULE_CANDIDATES = RULE_CANDIDATES.slice(0, 6);
+    closeFeedbackModal();
+    renderRuleCandidatePanel();
+}
+
+function renderRuleCandidatePanel() {
+    const panel = document.getElementById('rule-candidate-panel');
+    if (!panel) return;
+    if (RULE_CANDIDATES.length === 0) {
+        panel.style.display = 'none';
+        panel.innerHTML = '';
         return;
     }
 
-    const total = CURRENT_ISSUE_ITEMS.length;
-    const shown = CURRENT_BOARD_ITEMS.length;
-    const hidden = Math.max(CURRENT_ISSUE_ITEMS.length - CURRENT_BOARD_ITEMS.length, 0);
-    const expandButton = hidden > 0 || ISSUE_BOARD_EXPANDED
-        ? `<button type="button" class="issue-expand-btn" onclick="toggleIssueBoardExpanded()">${ISSUE_BOARD_EXPANDED ? '收起为优先事项' : `展开其余 ${hidden} 项`}</button>`
-        : '';
-
-    const cards = CURRENT_BOARD_ITEMS.map((item) => {
-        const c = item.check;
-        const sev = normalizeSeverity(c.severity).toLowerCase();
-        const evidenceIndex = CURRENT_ISSUE_ITEMS.indexOf(item);
-        return `
-            <div class="issue-card sev-${sev}">
-                <div class="issue-card-topline">
-                    <span class="issue-severity-pill">${severityLabel(c.severity)}</span>
-                    ${c.manual_confirmation_required ? '<span class="issue-manual-pill">需人工确认</span>' : ''}
-                    <span class="issue-doc-name" title="${escapeHtml(item.doc_name)}">${escapeHtml(item.doc_name)}</span>
-                </div>
-                <div class="issue-title">${escapeHtml(c.check_name || '未命名检查项')}</div>
-                <div class="issue-detail">${escapeHtml(c.detail || '暂无详细说明')}</div>
-                <div class="issue-meta-row">
-                    ${c.field_group ? `<span>字段簇：${escapeHtml(c.field_group)}</span>` : ''}
-                    ${c.check_mode ? `<span>方式：${escapeHtml(c.check_mode)}</span>` : ''}
-                    ${c.reason_code ? `<span>规则码：${escapeHtml(c.reason_code)}</span>` : ''}
-                </div>
-                <div class="issue-action">${escapeHtml(issueActionText(c))}</div>
-                <div class="issue-actions">
-                    <button type="button" onclick="showEvidence(${evidenceIndex})"><i class="ri-search-eye-line"></i> 查看依据</button>
-                </div>
-            </div>`;
-    }).join('');
-
-    container.innerHTML = `
-        <div class="issue-board-summary issue-board-summary-simple">
-            <span><strong>${total}</strong> 全部需关注事项</span>
-            <span><strong>${shown}</strong> 当前优先展示</span>
+    panel.style.display = 'block';
+    panel.innerHTML = `
+        <div class="rule-candidate-header">
+            <div>
+                <h3>规则候选池（Demo 模拟）</h3>
+                <p>反馈不会直接改系统，需业务确认、回归验证或进入产品版本。</p>
+            </div>
+            <span>${RULE_CANDIDATES.length} 条候选</span>
         </div>
-        <div class="issue-board-hint">
-            <strong>排序依据：</strong>风险影响程度、是否需要人工确认、是否涉及核心字段（业务场景、主体、账号、权限、介质、平台、证件有效期）。
-            ${hidden > 0 ? `默认收起 ${hidden} 项低优先级事项。` : '当前已展示全部需关注事项。'}
-            这里是辅助排序，不改变原有业务办理链路；完整底稿仍以下方审计明细为准。
-            ${expandButton}
-        </div>
-        <div class="issue-card-grid">${cards}</div>`;
+        <div class="rule-candidate-list">
+            ${RULE_CANDIDATES.map(item => `
+                <div class="rule-candidate-item lane-${item.tag}">
+                    <div class="rule-candidate-topline">
+                        <span class="lane-pill">${escapeHtml(item.lane)}</span>
+                        <span class="status-pill">${escapeHtml(item.status)}</span>
+                    </div>
+                    <div class="rule-candidate-title">${escapeHtml(item.check_name)}</div>
+                    <div class="rule-candidate-meta">
+                        ${escapeHtml(item.doc_name)} · ${escapeHtml(feedbackTypeLabel(item.feedback_type))}
+                        ${item.field_group ? ` · ${escapeHtml(item.field_group)}` : ''}
+                    </div>
+                    <div class="rule-candidate-action">${escapeHtml(item.action)}</div>
+                    ${item.note ? `<div class="rule-candidate-note">业务备注：${escapeHtml(item.note)}</div>` : ''}
+                </div>
+            `).join('')}
+        </div>`;
 }
 
 function buildEvidenceSnippet(item) {
@@ -326,35 +625,41 @@ function showEvidence(index) {
     if (!drawer || !title || !content) return;
 
     const c = item.check || {};
-    title.innerText = c.check_name || '查看依据';
+    title.innerText = businessCheckTitle(c);
     content.innerHTML = `
         <div class="evidence-section evidence-risk">
             <div class="evidence-risk-title">${escapeHtml(severityLabel(c.severity))}</div>
-            <div class="evidence-risk-detail">${escapeHtml(c.detail || '暂无检查说明')}</div>
+            <div class="evidence-risk-detail">${escapeHtml(businessDetailText(c))}</div>
         </div>
         <div class="evidence-grid">
             <div class="evidence-field">
-                <label>${escapeHtml(c.source_a_label || 'EFlow 基准')}</label>
-                <div>${escapeHtml(c.source_a_value || '/')}</div>
+                <label>电子流中登记的信息</label>
+                <div>${escapeHtml(formatBusinessValue(c.source_a_value))}</div>
             </div>
             <div class="evidence-field">
-                <label>${escapeHtml(c.source_b_label || item.doc_name || '文档抽取')}</label>
-                <div>${escapeHtml(c.source_b_value || '/')}</div>
+                <label>申请材料中识别的信息</label>
+                <div>${escapeHtml(formatBusinessValue(c.source_b_value))}</div>
             </div>
         </div>
         <div class="evidence-meta">
             <span>来源文档：${escapeHtml(item.doc_name)}</span>
-            ${c.field_group ? `<span>字段簇：${escapeHtml(c.field_group)}</span>` : ''}
-            ${c.field_name ? `<span>字段：${escapeHtml(c.field_name)}</span>` : ''}
-            ${c.check_mode ? `<span>检查方式：${escapeHtml(c.check_mode)}</span>` : ''}
-            ${c.scenario_type ? `<span>场景：${escapeHtml(c.scenario_type)}</span>` : ''}
-            ${c.reason_code ? `<span>规则码：${escapeHtml(c.reason_code)}</span>` : ''}
+            <span>涉及内容：${escapeHtml(businessFieldLabel(c))}</span>
+            ${c.scenario_type ? `<span>办理场景：${escapeHtml(formatBusinessValue(c.scenario_type))}</span>` : ''}
         </div>
         ${c.manual_confirmation_required ? '<div class="evidence-manual"><i class="ri-user-search-line"></i> 该事项需要人工确认，系统仅作辅助提示。</div>' : ''}
         <div class="evidence-section">
-            <h4>解析依据 / 原文片段</h4>
+            <h4>材料原文 / 解析片段</h4>
             <pre>${escapeHtml(buildEvidenceSnippet(item))}</pre>
-        </div>`;
+        </div>
+        <details class="technical-detail">
+            <summary>给产品/IT查看的技术信息</summary>
+            <div class="technical-detail-grid">
+                ${c.field_group ? `<span>字段簇：${escapeHtml(c.field_group)}</span>` : ''}
+                ${c.field_name ? `<span>字段：${escapeHtml(c.field_name)}</span>` : ''}
+                ${c.check_mode ? `<span>检查方式：${escapeHtml(c.check_mode)}</span>` : ''}
+                ${c.reason_code ? `<span>规则码：${escapeHtml(c.reason_code)}</span>` : ''}
+            </div>
+        </details>`;
 
     drawer.style.display = 'block';
 }
@@ -475,7 +780,7 @@ function renderRiskInsights(llmSummary, report) {
             manualList.innerHTML = `
                 <div class="manual-summary-card">
                     <i class="ri-user-search-line manual-confirm-icon"></i>
-                    <span>共 ${items.length} 项建议人工确认，具体事项已进入下方“建议优先复核事项”和“完整审计明细”。</span>
+                    <span>共 ${items.length} 项建议人工确认，具体事项已进入下方“检查结果总览”和“全部检查明细”。</span>
                 </div>
             `;
         } else {
@@ -806,14 +1111,12 @@ function renderCheckItem(c, docName) {
         : (docName ? docName : '文档发现');
     const diffHtml = c.result === 'MISMATCH' ? `
         <div class="check-diff-grid">
-            <div><span class="diff-label">${c.source_a_label || 'EFlow 基准'}</span><div class="diff-val">${c.source_a_value || '/'}</div></div>
-            <div><span class="diff-label" title="${srcLabel}" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">📄 ${srcLabel}</span><div class="diff-val diff-mismatch">${c.source_b_value || '/'}</div></div>
+            <div><span class="diff-label">电子流登记</span><div class="diff-val">${formatBusinessValue(c.source_a_value)}</div></div>
+            <div><span class="diff-label" title="${srcLabel}" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;">📄 申请材料</span><div class="diff-val diff-mismatch">${formatBusinessValue(c.source_b_value)}</div></div>
         </div>` : '';
     const metaBits = [
-        c.field_group ? `字段簇: ${c.field_group}` : '',
-        c.check_mode ? `检查方式: ${c.check_mode}` : '',
-        c.scenario_type ? `场景: ${c.scenario_type}` : '',
-        c.reason_code ? `规则码: ${c.reason_code}` : ''
+        `涉及内容: ${businessFieldLabel(c)}`,
+        c.scenario_type ? `办理场景: ${formatBusinessValue(c.scenario_type)}` : ''
     ].filter(Boolean);
     const metaHtml = metaBits.length > 0
         ? `<div class="check-meta-row">${metaBits.map(t => `<span class="check-meta-badge">${t}</span>`).join('')}</div>`
@@ -828,12 +1131,12 @@ function renderCheckItem(c, docName) {
     return `
         <div class="check-item sev-${sev}">
             <div class="check-item-header">
-                <span class="check-item-name">${c.check_name}</span>
-                <span class="sev-badge sev-badge-${sev}">${c.severity}</span>
+                <span class="check-item-name">${businessCheckTitle(c)}</span>
+                <span class="sev-badge sev-badge-${sev}">${severityLabel(c.severity)}</span>
             </div>
             ${metaHtml}
             ${manualHtml}
-            ${c.detail ? `<div class="check-item-detail">${c.detail}</div>` : ''}
+            ${c.detail ? `<div class="check-item-detail">${businessDetailText(c)}</div>` : ''}
             ${diffHtml}
             ${evidenceActionHtml}
         </div>`;
