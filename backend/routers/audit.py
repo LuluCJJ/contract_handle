@@ -18,7 +18,7 @@ from backend.models.schemas import (
     DocExtractedData, DocAnalysisReport, UserPermission, PermissionScope, 
     MediaInfo, CompanyInfo, PlatformInfo, OverallStatus
 )
-from backend.services import doc_parser, ocr_service, extractor, comparator, reporter, hard_comparator
+from backend.services import doc_parser, ocr_service, extractor, comparator, reporter, hard_comparator, semantic_normalizer
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -101,8 +101,9 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         # 2.2 硬比对
         h_checks = hard_comparator.run_hard_comparisons(eflow, extracted)
 
-        # 2.3 语义分析
-        s_checks = comparator.run_semantic_analyzer(eflow, extracted)
+        # 2.3 A2 轻量语义归一 + LLM 语义分析
+        n_checks = semantic_normalizer.run_semantic_normalization_checks(eflow, extracted)
+        s_checks = n_checks + comparator.run_semantic_analyzer(eflow, extracted)
         t_semantic = time.time()
 
         dr = DocAnalysisReport(

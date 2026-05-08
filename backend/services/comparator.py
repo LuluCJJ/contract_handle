@@ -15,6 +15,7 @@ if project_root not in sys.path:
 from backend.services.llm_client import chat_json
 from backend.config import get_config
 from backend.models.schemas import EFlowData, DocExtractedData, CheckResult, Severity
+from backend.services.check_taxonomy import CheckBlock, CheckLayer, tag_check
 
 
 def _derive_scenario_summary(eflow: EFlowData, all_docs_reports: list[dict], cross_checks: list[CheckResult]) -> str:
@@ -109,7 +110,7 @@ def run_semantic_analyzer(eflow: EFlowData, doc_ext: DocExtractedData) -> list[C
             # 分类映射
             cat = item.get("category", "业务要素核对")
             
-            checks.append(CheckResult(
+            checks.append(tag_check(CheckResult(
                 check_name=item.get("check_name", "语义比对测试"),
                 category=cat,
                 field_group=item.get("field_group", ""),
@@ -125,7 +126,7 @@ def run_semantic_analyzer(eflow: EFlowData, doc_ext: DocExtractedData) -> list[C
                 manual_confirmation_required=bool(item.get("manual_confirmation_required", False)),
                 reason_code=item.get("reason_code", ""),
                 detail=item.get("detail", "")
-            ))
+            ), layer=CheckLayer.EFLOW_BASED, block=CheckBlock.A2_SEMANTIC))
         return checks
     except Exception as e:
         print(f"[Comparator] Error running semantic check for {doc_ext.source_file}: {e}")

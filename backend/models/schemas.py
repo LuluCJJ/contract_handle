@@ -140,6 +140,8 @@ class Severity(str, Enum):
 class CheckResult(BaseModel):
     check_name: str
     category: str = "基本要素核对" # 默认为基本要素，支持：身份一致性、合规完整性、业务要素核对
+    check_layer: str = ""        # EFLOW_BASED / DOCUMENT_ONLY
+    check_block: str = ""        # A1_EXACT / A2_SEMANTIC / B1_SOP / B2_RISK_CLAUSE
     field_group: str = ""
     field_name: str = ""
     scenario_type: str = ""
@@ -154,6 +156,9 @@ class CheckResult(BaseModel):
     reason_code: str = ""
     detail: str = ""
     evidence: str = ""
+    confidence: float = 0.0
+    requires_config_review: bool = False
+    requires_engineering_change: bool = False
 
 class DocAnalysisReport(BaseModel):
     """单文档审查结果"""

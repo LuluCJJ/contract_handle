@@ -4,6 +4,7 @@ V3.0 - 负责姓名、账户、证件等不可由大模型主观猜测的刚性�
 """
 import re
 from backend.models.schemas import EFlowData, DocExtractedData, CheckResult, Severity
+from backend.services.check_taxonomy import CheckBlock, CheckLayer, tag_check
 
 def _clean_str(val: str) -> str:
     """清理字符串：大写、去空格、去特殊字符以便对齐比对"""
@@ -160,4 +161,7 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
                         detail="绑定账号精准一致"
                     ))
 
-    return checks
+    return [
+        tag_check(c, layer=CheckLayer.EFLOW_BASED, block=CheckBlock.A1_EXACT, confidence=1.0)
+        for c in checks
+    ]

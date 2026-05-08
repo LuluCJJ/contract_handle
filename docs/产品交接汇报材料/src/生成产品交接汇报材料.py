@@ -129,7 +129,15 @@ def pill(draw, x, y, text, color=BLUE, fill=BLUE_PALE):
 
 
 def save_slide(img, idx):
-    path = PREVIEWS / f"slide_{idx:02d}.png"
+    names = {
+        1: "第01页_业务定位.png",
+        2: "第02页_主链路.png",
+        3: "第03页_报告阅读.png",
+        4: "第04页_证据表达.png",
+        5: "第05页_运营闭环.png",
+        6: "第06页_产品化路线.png",
+    }
+    path = PREVIEWS / names.get(idx, f"第{idx:02d}页.png")
     img.save(path)
     return path
 
@@ -339,7 +347,7 @@ def build_pptx(slides):
     for path in slides:
         slide = prs.slides.add_slide(blank)
         slide.shapes.add_picture(str(path), 0, 0, width=prs.slide_width, height=prs.slide_height)
-    out = OUT / "contract_handle_product_handoff_style_refreshed.pptx"
+    out = OUT / "银行权限材料AI预审产品交接汇报.pptx"
     prs.save(out)
     return out
 
