@@ -18,7 +18,11 @@ from backend.models.schemas import (
     DocExtractedData, DocAnalysisReport, UserPermission, PermissionScope, 
     MediaInfo, CompanyInfo, PlatformInfo, OverallStatus
 )
-from backend.services import doc_parser, ocr_service, extractor, comparator, reporter, hard_comparator, semantic_normalizer
+from backend.services import (
+    doc_parser, ocr_service, extractor, comparator, reporter, hard_comparator,
+    semantic_normalizer, sop_checker, risk_clause_checker
+)
+from backend.services.check_taxonomy import CheckBlock, CheckLayer, tag_check
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -104,6 +108,10 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         # 2.3 A2 轻量语义归一 + LLM 语义分析
         n_checks = semantic_normalizer.run_semantic_normalization_checks(eflow, extracted)
         s_checks = n_checks + comparator.run_semantic_analyzer(eflow, extracted)
+
+        # 2.4 B1/B2 文档自身 SOP 与高风险条款扫描
+        s_checks += sop_checker.run_sop_checks(eflow, extracted, doc_full_text)
+        s_checks += risk_clause_checker.run_risk_clause_checks(extracted, doc_full_text)
         t_semantic = time.time()
 
         dr = DocAnalysisReport(
@@ -151,13 +159,13 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         from datetime import date as dt_date
         curr = dt_date.today().strftime("%Y-%m-%d")
         if person.expiry_date and person.expiry_date <= curr:
-            h_checks.append(CheckResult(
+            h_checks.append(tag_check(CheckResult(
                 check_name="证件有效期核查", category="身份一致性", field_group="subject", field_name="expiry_date",
                 scenario_type=extracted.scenario_type, check_mode="reverse_review",
                 source_a_label="系统当前日期", source_a_value=curr,
                 source_b_label="证件票面", source_b_value=person.expiry_date,
                 result="MISMATCH", severity=Severity.CRITICAL, reason_code="ID_EXPIRED", detail="实名证件已过期失效"
-            ))
+            ), layer=CheckLayer.EFLOW_BASED, block=CheckBlock.A1_EXACT, confidence=1.0))
         
         dr = DocAnalysisReport(
             doc_name=fname,

@@ -104,6 +104,20 @@ def _eflow_permission_scope(eflow: EFlowData) -> dict[str, bool]:
     return scope
 
 
+def _combined_media_type(doc_ext: DocExtractedData, rules: dict[str, Any]) -> tuple[str, str]:
+    mapping = rules.get("media_type", {})
+    for user in doc_ext.users:
+        raw = " ".join([
+            _norm_text(user.media.media_type),
+            _norm_text(user.media.existing_media),
+            _norm_text(user.action_on_media),
+        ])
+        normalized, phrase = _infer_from_mapping(raw, mapping)
+        if normalized:
+            return normalized, phrase
+    return "", ""
+
+
 def run_semantic_normalization_checks(eflow: EFlowData, doc_ext: DocExtractedData) -> list[CheckResult]:
     """Run deterministic A2 checks before the broader LLM semantic review."""
     rules = _load_rules()
@@ -225,6 +239,58 @@ def run_semantic_normalization_checks(eflow: EFlowData, doc_ext: DocExtractedDat
                 confidence=0.65,
                 requires_config_review=True,
             ))
+
+    action_map = rules.get("action", {})
+    eflow_action, eflow_action_phrase = _infer_from_mapping(_eflow_text(eflow), action_map)
+    doc_action = (doc_ext.action_type or "").strip().upper()
+    inferred_doc_action, doc_action_phrase = _infer_from_mapping(doc_text, action_map)
+    if doc_action in ("", "UNKNOWN"):
+        doc_action = inferred_doc_action
+    if eflow_action and doc_action and eflow_action != doc_action:
+        checks.append(CheckResult(
+            check_name="办理动作语义复核",
+            category="业务要素核对",
+            field_group="business_scenario",
+            field_name="action_type",
+            scenario_type=doc_scenario or doc_ext.scenario_type,
+            check_mode="semantic_normalization",
+            source_a_label="EFlow登记动作",
+            source_a_value=eflow_action,
+            source_b_label="材料识别动作",
+            source_b_value=doc_action,
+            result="MISMATCH",
+            severity=Severity.CRITICAL,
+            manual_confirmation_required=True,
+            reason_code="ACTION_SEMANTIC_MISMATCH",
+            detail="材料中的办理动作与电子流登记动作不一致，建议确认是开通、注销、变更还是介质办理。",
+            evidence=f"EFlow命中:{eflow_action_phrase}; 文档命中:{doc_action_phrase}",
+            confidence=0.82,
+            requires_config_review=True,
+        ))
+
+    eflow_media, eflow_media_phrase = _infer_from_mapping(_eflow_text(eflow), rules.get("media_type", {}))
+    doc_media, doc_media_phrase = _combined_media_type(doc_ext, rules)
+    if eflow_media and doc_media and eflow_media != doc_media:
+        checks.append(CheckResult(
+            check_name="介质类型语义复核",
+            category="业务要素核对",
+            field_group="media",
+            field_name="media_type",
+            scenario_type=doc_scenario or doc_ext.scenario_type,
+            check_mode="semantic_normalization",
+            source_a_label="EFlow登记介质",
+            source_a_value=eflow_media,
+            source_b_label="材料识别介质",
+            source_b_value=doc_media,
+            result="MISMATCH",
+            severity=Severity.WARNING,
+            manual_confirmation_required=True,
+            reason_code="MEDIA_TYPE_SEMANTIC_MISMATCH",
+            detail="材料中的介质类型与电子流登记介质不一致，建议确认是U盾、Token还是数字证书。",
+            evidence=f"EFlow命中:{eflow_media_phrase}; 文档命中:{doc_media_phrase}",
+            confidence=0.75,
+            requires_config_review=True,
+        ))
 
     return [
         tag_check(

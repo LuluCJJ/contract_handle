@@ -532,6 +532,238 @@ body {
     background: #ffedd5;
 }
 
+.validation-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.validation-summary-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-top: 4px solid #64748b;
+    border-radius: 10px;
+    padding: 16px 18px;
+}
+
+.validation-summary-card label {
+    color: #475569;
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.validation-summary-card strong {
+    color: #020617;
+    display: block;
+    font-size: 32px;
+    line-height: 1;
+    margin-bottom: 8px;
+}
+
+.validation-summary-card span {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.validation-summary-card.green { border-top-color: #16a34a; background: #f7fef9; }
+.validation-summary-card.yellow { border-top-color: #f59e0b; background: #fffaf0; }
+.validation-summary-card.red { border-top-color: #ef4444; background: #fff7f7; }
+
+.validation-reading-guide {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    color: #334155;
+    font-size: 14px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+    padding: 12px 14px;
+}
+
+.validation-section {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    margin-bottom: 14px;
+    overflow: hidden;
+}
+
+.validation-section.light-red { border-color: #fecaca; }
+.validation-section.light-yellow { border-color: #fed7aa; }
+.validation-section.light-green { border-color: #bbf7d0; }
+
+.validation-section summary {
+    align-items: center;
+    cursor: pointer;
+    display: flex;
+    font-weight: 800;
+    justify-content: space-between;
+    list-style: none;
+    padding: 14px 16px;
+}
+
+.validation-section summary::-webkit-details-marker {
+    display: none;
+}
+
+.validation-section summary span {
+    align-items: center;
+    color: #020617;
+    display: inline-flex;
+    gap: 8px;
+}
+
+.validation-section summary strong {
+    background: #f1f5f9;
+    border-radius: 999px;
+    color: #334155;
+    font-size: 12px;
+    padding: 4px 10px;
+}
+
+.validation-section.light-red summary { background: #fff7f7; }
+.validation-section.light-yellow summary { background: #fffaf0; }
+.validation-section.light-green summary { background: #f7fef9; }
+
+.validation-section-help {
+    border-top: 1px solid #e5e7eb;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 10px 16px;
+}
+
+.validation-table {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.validation-table th {
+    background: #f8fafc;
+    border-top: 1px solid #e5e7eb;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 10px 12px;
+    text-align: left;
+}
+
+.validation-table td {
+    border-top: 1px solid #e5e7eb;
+    color: #334155;
+    font-size: 13px;
+    line-height: 1.55;
+    padding: 12px;
+    vertical-align: top;
+}
+
+.validation-table tr:nth-child(even) td {
+    background: #fcfcfd;
+}
+
+.validation-table th:nth-child(1),
+.validation-table td:nth-child(1) { width: 118px; }
+.validation-table th:nth-child(3),
+.validation-table td:nth-child(3) { width: 180px; }
+.validation-table th:nth-child(4),
+.validation-table td:nth-child(4) { width: 170px; }
+.validation-table th:nth-child(5),
+.validation-table td:nth-child(5) { width: 120px; }
+
+.validation-row strong {
+    color: #020617;
+    display: block;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.validation-row p {
+    color: #475569;
+    margin: 0;
+}
+
+.traffic-pill {
+    align-items: center;
+    border-radius: 999px;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 800;
+    gap: 6px;
+    padding: 4px 9px;
+    white-space: nowrap;
+}
+
+.traffic-pill.light-green { background: #dcfce7; color: #166534; }
+.traffic-pill.light-yellow { background: #ffedd5; color: #9a3412; }
+.traffic-pill.light-red { background: #fee2e2; color: #991b1b; }
+
+.traffic-dot {
+    border-radius: 50%;
+    display: inline-block;
+    height: 8px;
+    width: 8px;
+}
+
+.light-green .traffic-dot,
+.traffic-pill.light-green .traffic-dot { background: #16a34a; }
+.light-yellow .traffic-dot,
+.traffic-pill.light-yellow .traffic-dot { background: #f59e0b; }
+.light-red .traffic-dot,
+.traffic-pill.light-red .traffic-dot { background: #ef4444; }
+
+.validation-tag {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    color: #475569;
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    margin: 0 4px 6px 0;
+    max-width: 160px;
+    overflow: hidden;
+    padding: 3px 8px;
+    text-overflow: ellipsis;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.validation-tag.muted {
+    background: #ffffff;
+}
+
+.validation-row-link {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #bfdbfe;
+    border-radius: 6px;
+    color: #1d4ed8;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 800;
+    gap: 5px;
+    margin: 0 6px 6px 0;
+    padding: 6px 9px;
+}
+
+.validation-row-link.feedback {
+    border-color: #fed7aa;
+    color: #9a3412;
+}
+
+.validation-row-link:hover {
+    background: #eff6ff;
+}
+
+.validation-row-link.feedback:hover {
+    background: #fff7ed;
+}
+
 .business-check-empty,
 .business-check-more {
     color: #64748b;
@@ -1295,6 +1527,7 @@ body {
     }
 
     .check-stat-grid,
+    .validation-summary,
     .preview-card-grid,
     .issue-card-grid,
     .evidence-grid,
@@ -1316,6 +1549,30 @@ body {
         align-items: flex-start;
         flex-direction: row;
         flex-wrap: wrap;
+    }
+
+    .validation-table,
+    .validation-table thead,
+    .validation-table tbody,
+    .validation-table th,
+    .validation-table td,
+    .validation-table tr {
+        display: block;
+        width: 100%;
+    }
+
+    .validation-table thead {
+        display: none;
+    }
+
+    .validation-table td {
+        border-top: 0;
+        padding: 8px 14px;
+    }
+
+    .validation-table tr {
+        border-top: 1px solid #e5e7eb;
+        padding: 8px 0;
     }
 }
 

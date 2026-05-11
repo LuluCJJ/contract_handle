@@ -121,6 +121,7 @@ class DocExtractedData(BaseModel):
     action_type: str = ""        # OPEN_PERMISSION / CANCEL_PERMISSION / OPEN_MEDIA / CANCEL_MEDIA / UNKNOWN
     action_summary: str = ""
     evidence_summary: str = ""
+    platform: PlatformInfo = Field(default_factory=PlatformInfo)
     company: CompanyInfo = Field(default_factory=CompanyInfo)
     # OCR主要提取这个
     persons: List[PersonInfo] = Field(default_factory=list)
@@ -157,6 +158,8 @@ class CheckResult(BaseModel):
     detail: str = ""
     evidence: str = ""
     confidence: float = 0.0
+    traffic_light: str = ""          # GREEN / YELLOW / RED
+    business_status: str = ""        # PASS / REVIEW / NEED_FIX
     requires_config_review: bool = False
     requires_engineering_change: bool = False
 

@@ -342,17 +342,51 @@ function collectCheckStats(report) {
     const checks = collectAllCheckItems(report);
 
     const total = checks.length;
-    const pass = checks.filter(item => normalizeSeverity(item.check.severity) === 'PASS').length;
-    const manual = checks.filter(item =>
-        normalizeSeverity(item.check.severity) !== 'PASS' && item.check.manual_confirmation_required
-    ).length;
-    const mismatch = checks.filter(item =>
-        normalizeSeverity(item.check.severity) !== 'PASS' && !item.check.manual_confirmation_required
-    ).length;
+    const pass = checks.filter(item => trafficLight(item.check) === 'GREEN').length;
+    const manual = checks.filter(item => trafficLight(item.check) === 'YELLOW').length;
+    const mismatch = checks.filter(item => trafficLight(item.check) === 'RED').length;
     const critical = checks.filter(item => normalizeSeverity(item.check.severity) === 'CRITICAL').length;
     const warning = checks.filter(item => normalizeSeverity(item.check.severity) === 'WARNING').length;
     const info = checks.filter(item => normalizeSeverity(item.check.severity) === 'INFO').length;
     return { total, pass, mismatch, manual, critical, warning, info };
+}
+
+function trafficLight(check) {
+    const explicit = String(check?.traffic_light || '').toUpperCase();
+    if (['GREEN', 'YELLOW', 'RED'].includes(explicit)) return explicit;
+    const sev = normalizeSeverity(check?.severity);
+    if (sev === 'PASS') return 'GREEN';
+    if (check?.manual_confirmation_required) return 'YELLOW';
+    return 'RED';
+}
+
+function trafficLabel(check) {
+    return {
+        GREEN: '绿灯通过',
+        YELLOW: '审核人确认',
+        RED: '发现不一致'
+    }[trafficLight(check)] || '待查看';
+}
+
+function trafficSortScore(item) {
+    return { RED: 0, YELLOW: 1, GREEN: 2 }[trafficLight(item.check)] ?? 3;
+}
+
+function checkBlockLabel(check) {
+    return {
+        A1_EXACT: '关键信息一致性',
+        A2_SEMANTIC: '业务语义理解',
+        B1_SOP: '材料合规合理性',
+        B2_RISK_CLAUSE: '风险条款提示'
+    }[check?.check_block] || businessFieldLabel(check);
+}
+
+function statusHelpText(light) {
+    return {
+        GREEN: '已按现有规则确认一致或未发现明显异常。',
+        YELLOW: '当前材料信息不足或需要结合业务背景判断，请审核人确认。',
+        RED: '发现与电子流、材料规范或风险词库不一致，建议优先复核并补充或修正。'
+    }[light] || '';
 }
 
 function renderCheckOverviewBoard(report) {
@@ -360,113 +394,102 @@ function renderCheckOverviewBoard(report) {
     if (!container) return;
 
     CURRENT_REPORT = report;
-    CURRENT_ISSUE_ITEMS = collectIssueItems(report);
     const allItems = collectAllCheckItems(report);
+    const sortedItems = allItems
+        .slice()
+        .sort((a, b) => trafficSortScore(a) - trafficSortScore(b) || priorityScore(a) - priorityScore(b));
+    CURRENT_ISSUE_ITEMS = sortedItems;
     CURRENT_BOARD_ITEMS = allItems;
     closeEvidenceDrawer();
 
     const stats = collectCheckStats(report);
-    const manualItems = allItems
-        .filter(item => normalizeSeverity(item.check.severity) !== 'PASS' && item.check.manual_confirmation_required)
-        .sort((a, b) => priorityScore(a) - priorityScore(b));
-    const riskItems = allItems
-        .filter(item => normalizeSeverity(item.check.severity) !== 'PASS' && !item.check.manual_confirmation_required)
-        .sort((a, b) => priorityScore(a) - priorityScore(b));
-    const passItems = allItems
-        .filter(item => normalizeSeverity(item.check.severity) === 'PASS')
-        .slice(0, 8);
 
-    const renderBusinessRows = (items, emptyText, opts = {}) => {
-        if (items.length === 0) {
-            return `<div class="business-check-empty">${escapeHtml(emptyText)}</div>`;
-        }
-        const expanded = opts.expanded === true;
-        const visibleItems = expanded ? items : items.slice(0, CHECK_GROUP_PREVIEW_LIMIT);
-        const rows = visibleItems.map(item => {
-            const c = item.check || {};
-            const sev = normalizeSeverity(c.severity).toLowerCase();
-            const evidenceIndex = CURRENT_ISSUE_ITEMS.findIndex(issue => issue.check === c);
-            const evidenceButton = evidenceIndex >= 0
-                ? `<button type="button" class="business-row-btn" onclick="showEvidence(${evidenceIndex})"><i class="ri-search-eye-line"></i> 看依据</button>`
-                : '';
-            const feedbackButton = evidenceIndex >= 0
-                ? `<button type="button" class="business-row-feedback" onclick="openFeedbackModal(${evidenceIndex})"><i class="ri-chat-check-line"></i> 反馈</button>`
-                : '';
-            return `
-                <div class="business-check-row sev-${sev}">
-                    <div class="business-row-main">
-                        <div class="business-row-title">${escapeHtml(businessCheckTitle(c))}</div>
-                        <div class="business-row-desc">${escapeHtml(businessDetailText(c))}</div>
-                        <div class="business-row-meta">
-                            <span>${escapeHtml(item.doc_name)}</span>
-                            <span>${escapeHtml(businessFieldLabel(c))}</span>
-                            ${opts.showAction ? `<span>${escapeHtml(issueActionText(c))}</span>` : ''}
-                        </div>
-                    </div>
-                    <div class="business-row-actions">
-                        <span class="business-status-pill">${escapeHtml(severityLabel(c.severity))}</span>
-                        ${c.manual_confirmation_required ? '<span class="business-manual-pill">审核人确认</span>' : ''}
-                        ${evidenceButton}
-                        ${feedbackButton}
-                    </div>
-                </div>`;
-        }).join('');
-        const hidden = items.length - visibleItems.length;
-        const more = hidden > 0
-            ? `<div class="business-check-more">还有 ${hidden} 项已收起，可在下方“查看全部检查明细”中复核。</div>`
+    const renderRows = (items) => items.map(item => {
+        const c = item.check || {};
+        const index = CURRENT_ISSUE_ITEMS.findIndex(issue => issue.check === c);
+        const light = trafficLight(c);
+        const feedbackButton = light !== 'GREEN'
+            ? `<button type="button" class="validation-row-link feedback" onclick="openFeedbackModal(${index})"><i class="ri-chat-check-line"></i> 反馈</button>`
             : '';
-        return rows + more;
-    };
+        return `
+            <tr class="validation-row light-${light.toLowerCase()}">
+                <td>
+                    <span class="traffic-pill light-${light.toLowerCase()}">
+                        <span class="traffic-dot"></span>${escapeHtml(trafficLabel(c))}
+                    </span>
+                </td>
+                <td>
+                    <strong>${escapeHtml(businessCheckTitle(c))}</strong>
+                    <p>${escapeHtml(businessDetailText(c))}</p>
+                </td>
+                <td>
+                    <span class="validation-tag">${escapeHtml(checkBlockLabel(c))}</span>
+                    <span class="validation-tag muted">${escapeHtml(item.doc_name)}</span>
+                </td>
+                <td>${escapeHtml(issueActionText(c))}</td>
+                <td>
+                    <button type="button" class="validation-row-link" onclick="showEvidence(${index})"><i class="ri-search-eye-line"></i> 看依据</button>
+                    ${feedbackButton}
+                </td>
+            </tr>`;
+    }).join('');
+
+    const renderSection = (title, light, items, open = true) => `
+        <details class="validation-section light-${light.toLowerCase()}" ${open ? 'open' : ''}>
+            <summary>
+                <span><span class="traffic-dot"></span>${escapeHtml(title)}</span>
+                <strong>${items.length} 项</strong>
+            </summary>
+            <div class="validation-section-help">${escapeHtml(statusHelpText(light))}</div>
+            ${items.length ? `
+                <table class="validation-table">
+                    <thead>
+                        <tr>
+                            <th>状态</th>
+                            <th>检查内容</th>
+                            <th>检查范围</th>
+                            <th>建议动作</th>
+                            <th>依据</th>
+                        </tr>
+                    </thead>
+                    <tbody>${renderRows(items)}</tbody>
+                </table>` : `<div class="business-check-empty">当前没有此类检查结果。</div>`}
+        </details>`;
+
+    const redItems = sortedItems.filter(item => trafficLight(item.check) === 'RED');
+    const yellowItems = sortedItems.filter(item => trafficLight(item.check) === 'YELLOW');
+    const greenItems = sortedItems.filter(item => trafficLight(item.check) === 'GREEN');
 
     container.innerHTML = `
-        <div class="check-stat-grid">
-            <div class="check-stat-card stat-total">
+        <div class="validation-summary">
+            <div class="validation-summary-card total">
                 <label>共检查</label>
                 <strong>${stats.total}</strong>
                 <span>项内容</span>
             </div>
-            <div class="check-stat-card stat-pass">
+            <div class="validation-summary-card green">
                 <label>绿灯通过</label>
                 <strong>${stats.pass}</strong>
-                <span>项一致/通过</span>
+                <span>项一致或未发现异常</span>
             </div>
-            <div class="check-stat-card stat-critical">
+            <div class="validation-summary-card red">
                 <label>发现不一致</label>
                 <strong>${stats.mismatch}</strong>
-                <span>项需要补充或修正</span>
+                <span>项建议优先复核</span>
             </div>
-            <div class="check-stat-card stat-manual">
+            <div class="validation-summary-card yellow">
                 <label>审核人确认</label>
                 <strong>${stats.manual}</strong>
-                <span>项当前检查逻辑无法直接判断</span>
+                <span>项需结合业务背景</span>
             </div>
         </div>
-        <div class="business-check-guidance">
+        <div class="validation-reading-guide">
             <strong>阅读方式：</strong>
-            以下数量按互斥口径统计，同一项只归入一个类别。绿灯通过表示材料与电子流一致；审核人确认表示当前检查逻辑无法直接判断；发现不一致表示建议补充或修正。
+            每条检查只归入一个红绿灯状态。红灯优先看，黄灯由审核人结合业务材料判断，绿灯作为已检查底稿保留。
         </div>
-        <div class="business-check-section manual-section">
-            <div class="business-check-section-head">
-                <h3>需要审核人确认</h3>
-                <span>${manualItems.length} 项</span>
-            </div>
-            ${renderBusinessRows(manualItems, '当前没有需要审核人专门确认的事项。', { showAction: true })}
-        </div>
-        <div class="business-check-section risk-section">
-            <div class="business-check-section-head">
-                <h3>发现不一致或需要修正</h3>
-                <span>${riskItems.length} 项</span>
-            </div>
-            ${renderBusinessRows(riskItems, '当前没有发现明确不一致事项。', { showAction: true })}
-        </div>
-        <details class="business-check-section pass-section">
-            <summary>
-                <span>已确认一致/通过</span>
-                <strong>${stats.pass} 项</strong>
-            </summary>
-            ${renderBusinessRows(passItems, '暂无绿灯通过项。', { expanded: true })}
-            ${stats.pass > passItems.length ? `<div class="business-check-more">其余 ${stats.pass - passItems.length} 项已通过，完整底稿可在下方展开查看。</div>` : ''}
-        </details>
+        ${renderSection('发现不一致或建议优先复核', 'RED', redItems, true)}
+        ${renderSection('需要审核人确认', 'YELLOW', yellowItems, true)}
+        ${renderSection('已确认一致/通过', 'GREEN', greenItems, false)}
         <div class="rule-candidate-panel" id="rule-candidate-panel" style="display:none;"></div>`;
     renderRuleCandidatePanel();
 }

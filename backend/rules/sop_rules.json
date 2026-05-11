@@ -1,0 +1,10 @@
+{
+  "placeholder_tokens": ["待填", "N/A", "NA", "TBD", "XXX", "请填写"],
+  "business_conflicts": {
+    "OPEN": ["注销", "撤销", "停用", "取消权限", "关闭权限", "Terminate", "Cancel"],
+    "CANCEL": ["开通", "新增", "启用", "申请开立", "申请开通", "Add", "Open"]
+  },
+  "date_formats": ["YYYY-MM-DD", "YYYY年MM月DD日"],
+  "currency_tokens": ["元", "人民币", "CNY", "RMB", "USD", "美元", "EUR", "欧元", "HKD", "港币"],
+  "allowed_email_suffixes": []
+}
