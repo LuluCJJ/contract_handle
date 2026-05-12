@@ -19,8 +19,49 @@
     "industry": "一般贸易"
   },
   "applicant": {
-    "name": "",
+    "name": "Liu Yang",
     "department": "通用申请部"
   },
-  "users": []
+  "users": [
+    {
+      "user_name": "Liu Yang",
+      "permission_sub_type": "制单员",
+      "permission_scope": {
+        "authorize": false,
+        "payment": false,
+        "query": true,
+        "upload": false
+      },
+      "account_number": "454676800100123456,454676800100789012",
+      "account_status": "In Use",
+      "single_limit": 500000,
+      "daily_limit": 2000000,
+      "action_on_permission": "OPEN",
+      "action_on_media": "KEEP",
+      "media": {
+        "media_type": "",
+        "is_blank": false
+      }
+    },
+    {
+      "user_name": "Wang Fang",
+      "permission_sub_type": "复核员",
+      "permission_scope": {
+        "authorize": true,
+        "payment": false,
+        "query": false,
+        "upload": false
+      },
+      "account_number": "454676800100123456,454676800100789012",
+      "account_status": "In Use",
+      "single_limit": 100000,
+      "daily_limit": 500000,
+      "action_on_permission": "OPEN",
+      "action_on_media": "KEEP",
+      "media": {
+        "media_type": "",
+        "is_blank": false
+      }
+    }
+  ]
 }

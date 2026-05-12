@@ -22,6 +22,82 @@ def _is_name_match(name1: str, name2: str) -> bool:
     # 允许包含关系 (例如 "Wang Wei" vs "WangWei(CEO)")
     return c1 in c2 or c2 in c1
 
+def _split_tokens(value: str) -> set[str]:
+    """Split account/media fields that may contain multiple values in one cell."""
+    if not value:
+        return set()
+    parts = re.split(r"[,，;；、\n/]+", str(value))
+    return {_clean_str(part) for part in parts if _clean_str(part)}
+
+def _has_token_overlap(left: str, right: str) -> bool:
+    left_tokens = _split_tokens(left)
+    right_tokens = _split_tokens(right)
+    if left_tokens and right_tokens:
+        return bool(left_tokens & right_tokens)
+    return _clean_str(left) == _clean_str(right)
+
+def _scope_dict(user) -> dict[str, bool]:
+    scope = user.permission_scope
+    return {
+        "authorize": bool(scope.authorize),
+        "payment": bool(scope.payment),
+        "query": bool(scope.query),
+        "upload": bool(scope.upload),
+    }
+
+def _scope_labels(keys: list[str]) -> str:
+    labels = {
+        "authorize": "授权/复核",
+        "payment": "支付/转账",
+        "query": "查询",
+        "upload": "上传/导入",
+    }
+    return "、".join(labels.get(k, k) for k in keys)
+
+def _user_identity(user) -> str:
+    parts = [user.user_name, user.account_number, user.media.media_number, user.permission_sub_type]
+    return " / ".join(str(p) for p in parts if p)
+
+def _match_score(ef_user, doc_user) -> int:
+    score = 0
+    if ef_user.user_name and doc_user.user_name and _is_name_match(ef_user.user_name, doc_user.user_name):
+        score += 100
+    if ef_user.account_number and doc_user.account_number and _has_token_overlap(ef_user.account_number, doc_user.account_number):
+        score += 60
+    if ef_user.media.media_number and doc_user.media.media_number and _has_token_overlap(ef_user.media.media_number, doc_user.media.media_number):
+        score += 50
+    if ef_user.permission_sub_type and doc_user.permission_sub_type and _is_name_match(ef_user.permission_sub_type, doc_user.permission_sub_type):
+        score += 15
+    return score
+
+def _match_users(eflow_users, doc_users) -> tuple[list[tuple[object, object, int]], list[object], list[object]]:
+    """Greedy user matcher for multi-operator forms.
+
+    It intentionally requires at least a name/account/media match. Permission role
+    alone is too weak and can pair unrelated operators.
+    """
+    candidates = []
+    for e_idx, ef_user in enumerate(eflow_users):
+        for d_idx, doc_user in enumerate(doc_users):
+            score = _match_score(ef_user, doc_user)
+            if score >= 50:
+                candidates.append((score, e_idx, d_idx, ef_user, doc_user))
+    candidates.sort(reverse=True, key=lambda item: item[0])
+
+    used_e: set[int] = set()
+    used_d: set[int] = set()
+    matches = []
+    for score, e_idx, d_idx, ef_user, doc_user in candidates:
+        if e_idx in used_e or d_idx in used_d:
+            continue
+        used_e.add(e_idx)
+        used_d.add(d_idx)
+        matches.append((ef_user, doc_user, score))
+
+    unmatched_ef = [u for idx, u in enumerate(eflow_users) if idx not in used_e]
+    unmatched_doc = [u for idx, u in enumerate(doc_users) if idx not in used_d]
+    return matches, unmatched_ef, unmatched_doc
+
 def _clean_account_name(val: str) -> str:
     clean = _clean_str(val)
     for suffix in ["基本存款账户", "一般存款账户", "专用存款账户", "临时存款账户"]:
@@ -214,19 +290,88 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
     # 3. 对于 Word/PDF 表单：提取的多个 users 与 eflow 的 users 对比
     if doc_type in ["word", "pdf"] and doc_ext.users:
         eflow_users = eflow.users
-        for doc_u in doc_ext.users:
-            # 根据 name 或 account 找匹配项
-            matched_ef_u = None
-            for ef_u in eflow_users:
-                if doc_u.user_name and ef_u.user_name and _is_name_match(doc_u.user_name, ef_u.user_name):
-                    matched_ef_u = ef_u
-                    break
+        matches, unmatched_ef_users, unmatched_doc_users = _match_users(eflow_users, doc_ext.users)
+
+        if eflow_users:
+            for ef_u in unmatched_ef_users:
+                checks.append(CheckResult(
+                    check_name="电子流用户在材料中未稳定识别",
+                    category="核心信息一致性检查",
+                    field_group="subject",
+                    field_name="user_presence",
+                    scenario_type=doc_ext.scenario_type,
+                    check_mode="object_matching",
+                    source_a_label="EFlow用户",
+                    source_a_value=_user_identity(ef_u),
+                    source_b_label="材料识别用户",
+                    source_b_value="未稳定匹配",
+                    result="MISSING",
+                    severity=Severity.WARNING,
+                    manual_confirmation_required=True,
+                    reason_code="EFLOW_USER_NOT_FOUND_IN_DOC",
+                    detail="电子流中存在该操作员/权限对象，但材料中未稳定识别到对应对象，建议确认材料是否遗漏或抽取是否不完整。",
+                ))
+            for doc_u in unmatched_doc_users:
+                checks.append(CheckResult(
+                    check_name="材料出现电子流外用户",
+                    category="核心信息一致性检查",
+                    field_group="subject",
+                    field_name="user_presence",
+                    scenario_type=doc_ext.scenario_type,
+                    check_mode="object_matching",
+                    source_a_label="EFlow用户清单",
+                    source_a_value="; ".join(_user_identity(u) for u in eflow_users),
+                    source_b_label="材料识别用户",
+                    source_b_value=_user_identity(doc_u),
+                    result="MISMATCH",
+                    severity=Severity.WARNING,
+                    manual_confirmation_required=True,
+                    reason_code="DOC_USER_NOT_IN_EFLOW",
+                    detail="材料中出现未能与电子流稳定匹配的用户/权限对象，建议确认是否为额外人员、模板联系人或抽取误差。",
+                ))
+
+        # 如果 EFlow 没有用户明细，仍保留材料多用户事实，提示审核人确认基准信息是否完整。
+        if not eflow_users and len(doc_ext.users) > 1:
+            checks.append(CheckResult(
+                check_name="材料包含多名操作员但电子流无用户明细",
+                category="核心信息一致性检查",
+                field_group="subject",
+                field_name="user_presence",
+                scenario_type=doc_ext.scenario_type,
+                check_mode="object_matching",
+                source_a_label="EFlow用户清单",
+                source_a_value="空",
+                source_b_label="材料识别用户",
+                source_b_value="; ".join(_user_identity(u) for u in doc_ext.users),
+                result="REVIEW",
+                severity=Severity.WARNING,
+                manual_confirmation_required=True,
+                reason_code="DOC_MULTI_USER_WITHOUT_EFLOW_USERS",
+                detail="材料中识别到多名操作员/权限对象，但电子流未提供用户明细，建议补齐电子流结构化基准后再进行逐人核对。",
+            ))
+
+        for matched_ef_u, doc_u, match_score in matches:
+            checks.append(CheckResult(
+                check_name=f"操作员({doc_u.user_name or matched_ef_u.user_name})对象匹配",
+                category="核心信息一致性检查",
+                field_group="subject",
+                field_name="user_object",
+                scenario_type=doc_ext.scenario_type,
+                check_mode="object_matching",
+                source_a_label="EFlow用户对象",
+                source_a_value=_user_identity(matched_ef_u),
+                source_b_label="材料用户对象",
+                source_b_value=_user_identity(doc_u),
+                result="MATCH",
+                severity=Severity.PASS,
+                reason_code="USER_OBJECT_MATCH",
+                detail="材料中的用户/权限对象已与电子流用户稳定匹配。",
+                evidence=f"match_score={match_score}",
+            ))
             
             # 如果名字对上，校验他们的账号
             if matched_ef_u and matched_ef_u.account_number and doc_u.account_number:
-                ef_acc = _clean_str(matched_ef_u.account_number)
-                doc_acc = _clean_str(doc_u.account_number)
-                if ef_acc != doc_acc:
+                if not _has_token_overlap(matched_ef_u.account_number, doc_u.account_number):
                      checks.append(CheckResult(
                         check_name=f"操作员({doc_u.user_name})账号绑定校验",
                         field_group="account",
@@ -254,6 +399,64 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
                     ))
 
             if matched_ef_u:
+                ef_scope = _scope_dict(matched_ef_u)
+                doc_scope = _scope_dict(doc_u)
+                exceeded_permissions = [key for key, value in doc_scope.items() if value and not ef_scope.get(key, False)]
+                missing_permissions = [key for key, value in ef_scope.items() if value and not doc_scope.get(key, False)]
+                if exceeded_permissions:
+                    checks.append(CheckResult(
+                        check_name=f"操作员({doc_u.user_name or matched_ef_u.user_name})权限范围超出",
+                        category="核心信息一致性检查",
+                        field_group="permission",
+                        field_name="user_permission_scope",
+                        scenario_type=doc_ext.scenario_type,
+                        check_mode="object_level_consistency",
+                        source_a_label="EFlow用户权限",
+                        source_a_value=str(ef_scope),
+                        source_b_label="材料用户权限",
+                        source_b_value=str(doc_scope),
+                        result="MISMATCH",
+                        severity=Severity.CRITICAL,
+                        manual_confirmation_required=True,
+                        reason_code="USER_PERMISSION_SCOPE_EXCEEDS_EFLOW",
+                        detail=f"该操作员材料中的权限范围超出电子流登记范围，超出项：{_scope_labels(exceeded_permissions)}。",
+                    ))
+                elif missing_permissions:
+                    checks.append(CheckResult(
+                        check_name=f"操作员({doc_u.user_name or matched_ef_u.user_name})权限范围需确认",
+                        category="核心信息一致性检查",
+                        field_group="permission",
+                        field_name="user_permission_scope",
+                        scenario_type=doc_ext.scenario_type,
+                        check_mode="object_level_consistency",
+                        source_a_label="EFlow用户权限",
+                        source_a_value=str(ef_scope),
+                        source_b_label="材料用户权限",
+                        source_b_value=str(doc_scope),
+                        result="MISSING",
+                        severity=Severity.WARNING,
+                        manual_confirmation_required=True,
+                        reason_code="USER_PERMISSION_SCOPE_MISSING",
+                        detail=f"电子流登记的部分用户权限未能在材料中稳定识别，缺少项：{_scope_labels(missing_permissions)}。",
+                    ))
+                elif any(ef_scope.values()) or any(doc_scope.values()):
+                    checks.append(CheckResult(
+                        check_name=f"操作员({doc_u.user_name or matched_ef_u.user_name})权限范围核对",
+                        category="核心信息一致性检查",
+                        field_group="permission",
+                        field_name="user_permission_scope",
+                        scenario_type=doc_ext.scenario_type,
+                        check_mode="object_level_consistency",
+                        source_a_label="EFlow用户权限",
+                        source_a_value=str(ef_scope),
+                        source_b_label="材料用户权限",
+                        source_b_value=str(doc_scope),
+                        result="MATCH",
+                        severity=Severity.PASS,
+                        reason_code="USER_PERMISSION_SCOPE_MATCH",
+                        detail="该操作员材料权限范围与电子流登记权限一致。",
+                    ))
+
                 if matched_ef_u.account_name and doc_u.account_name:
                     matched = _clean_account_name(matched_ef_u.account_name) == _clean_account_name(doc_u.account_name)
                     _append_check(
