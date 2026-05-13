@@ -139,11 +139,17 @@ def _pass_check(name: str, field_group: str, field_name: str, detail: str) -> Ch
 
 def _infer_scenario(value: str) -> str:
     value_upper = value.upper()
-    if "CANCEL" in value_upper or any(w in value for w in ["注销", "取消", "撤销", "停用", "停止使用", "关闭权限", "Terminate", "Cancel"]):
+    open_terms = ["OPEN", "开通", "开立", "新增", "启用", "申请", "办理", "加挂", "issuance", "new", "現有企業網上銀行委託使用者"]
+    cancel_terms = ["CANCEL", "注销", "取消", "撤销", "停用", "停止使用", "关闭权限", "Terminate", "Cancel"]
+    modify_terms = ["MODIFY", "变更", "修改", "维护", "更改服务", "调整"]
+    open_hits = sum(1 for w in open_terms if (w.upper() in value_upper if w.isascii() else w in value))
+    cancel_hits = sum(1 for w in cancel_terms if (w.upper() in value_upper if w.isascii() else w in value))
+    modify_hits = sum(1 for w in modify_terms if (w.upper() in value_upper if w.isascii() else w in value))
+    if cancel_hits and cancel_hits > open_hits:
         return "CANCEL"
-    if "OPEN" in value_upper or any(w in value for w in ["开通", "开立", "新增", "启用", "申请", "办理", "加挂", "issuance", "new"]):
+    if open_hits:
         return "OPEN"
-    if "MODIFY" in value_upper or any(w in value for w in ["变更", "修改", "维护", "更改服务", "调整"]):
+    if modify_hits:
         return "MODIFY"
     return ""
 

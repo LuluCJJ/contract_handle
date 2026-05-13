@@ -43,7 +43,7 @@ def test_identity_checks_are_merged_into_one_business_point():
     assert len(identity_points) == 1
     assert identity_points[0].title == "操作员身份"
     assert identity_points[0].traffic_light == "YELLOW"
-    assert len(identity_points[0].evidence_items) == 3
+    assert len(identity_points[0].evidence_items) == 2
     assert "Liu Yang" in identity_points[0].source_a_value
     assert "Wang Jun" in identity_points[0].source_b_value
 
@@ -65,7 +65,7 @@ def test_permission_checks_are_one_business_point_with_evidence_rows():
     assert permission_points[0].title == "权限范围"
     assert permission_points[0].traffic_light == "YELLOW"
     assert "支付/转账" in permission_points[0].summary
-    assert len(permission_points[0].evidence_items) == 2
+    assert len(permission_points[0].evidence_items) == 1
 
 
 if __name__ == "__main__":

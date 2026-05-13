@@ -101,8 +101,9 @@ def _format_value(value: Any) -> str:
 
 
 def _side_value(checks: list[CheckResult], side: str) -> str:
+    display_checks = _display_checks(checks)
     values: list[str] = []
-    for check in checks:
+    for check in display_checks:
         label = check.source_a_label if side == "a" else check.source_b_label
         value = check.source_a_value if side == "a" else check.source_b_value
         formatted = _format_value(value)
@@ -114,6 +115,11 @@ def _side_value(checks: list[CheckResult], side: str) -> str:
     if not values:
         return "电子流未提供可展示值" if side == "a" else "材料未稳定识别可展示值"
     return "\n".join(values[:6])
+
+
+def _display_checks(checks: list[CheckResult]) -> list[CheckResult]:
+    active = [c for c in checks if (c.traffic_light or "").upper() != "GREEN"]
+    return active or checks
 
 
 def _permission_label(check: CheckResult) -> str:
@@ -207,6 +213,8 @@ def build_check_points(
         evidence_snippets = []
         evidence_rows: list[CheckPointEvidence] = []
         for doc_name, doc_type, check in entries:
+            if check not in _display_checks(checks):
+                continue
             if doc_name and doc_name not in doc_names:
                 doc_names.append(doc_name)
             snippet = _text(check.evidence or check.source_b_value or check.detail)

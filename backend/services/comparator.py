@@ -58,12 +58,21 @@ def _should_skip_llm_check(eflow: EFlowData, doc_ext: DocExtractedData, item: di
     field_name = str(item.get("field_name", "")).lower()
     reason_code = str(item.get("reason_code", "")).upper()
     check_name = str(item.get("check_name", ""))
+    detail = str(item.get("detail", ""))
+    source_a = str(item.get("source_a_value", ""))
+    source_b = str(item.get("source_b_value", ""))
 
     if field_group == "platform":
         if (
             "CODE" in field_name.upper()
             or "CODE" in reason_code
+            or "编码" in field_name
+            or "编号" in field_name
             or "代码" in check_name
+            or "编码" in check_name
+            or "编号" in check_name
+            or "编码" in detail
+            or "编号" in detail
         ):
             return True
         if doc_ext.platform.bank_name or doc_ext.platform.platform_name:
@@ -73,10 +82,17 @@ def _should_skip_llm_check(eflow: EFlowData, doc_ext: DocExtractedData, item: di
         if "permission_scope" in field_name or "PERMISSION_SCOPE" in reason_code or "权限范围" in check_name:
             return True
 
-    if field_group == "account" and field_name == "account_status":
+    if field_group == "account" and ("account_status" in field_name or "账户状态" in check_name or "账户状态" in detail):
         # EFlow-side status is checked deterministically. Bank forms often do
         # not repeat status, so LLM "missing status" messages are noise.
         return True
+
+    if field_group == "media":
+        eflow_scenario = _infer_basic_scenario(f"{eflow.business_type} {eflow.business_scenario}")
+        if eflow_scenario == "OPEN" and any(word in f"{check_name} {detail} {source_a} {source_b}" for word in ["注销", "取消介质", "needs_cancellation", "无需注销", "未标记介质需要注销"]):
+            return True
+        if any(word in detail for word in ["状态一致", "无需注销", "无须注销"]):
+            return True
 
     return False
 

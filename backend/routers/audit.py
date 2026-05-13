@@ -55,6 +55,7 @@ def _save_intermediate(output_dir: Path, step_name: str, data, is_text=False):
 
 def _parse_eflow_v3(raw: dict) -> EFlowData:
     """强制转换为 V3 版本的 EFlow 数据标准"""
+    raw = _normalize_eflow_payload(raw)
     try:
         edata = EFlowData(**raw)
         edata.raw_text = json.dumps(raw, ensure_ascii=False)
@@ -66,6 +67,71 @@ def _parse_eflow_v3(raw: dict) -> EFlowData:
         edata.business_type = raw.get("activity", "")
         # ... 可以加更多 fallback，这里假设测试环境用新数据
         return edata
+
+
+def _norm_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"true", "1", "yes", "y", "是", "有"}
+
+
+def _normalize_eflow_payload(raw: dict) -> dict:
+    """Normalize business EFlow variants into the demo schema.
+
+    Real EFlow data often nests account-level permission facts under
+    users[].accounts[] and uses field names such as bank_short_name or
+    new_media_type. The demo checks are user-centric today, so we flatten the
+    account facts onto each user while preserving comma-separated account lists.
+    """
+    data = json.loads(json.dumps(raw, ensure_ascii=False))
+
+    platform = data.get("platform") or {}
+    if "platform_url" in platform and "login_url" not in platform:
+        platform["login_url"] = platform.get("platform_url") or ""
+    if "bank_short_name" in platform and "bank_short" not in platform:
+        platform["bank_short"] = platform.get("bank_short_name") or ""
+    data["platform"] = platform
+
+    for user in data.get("users", []) or []:
+        media = user.get("media") or {}
+        if "new_media_type" in media and "media_type" not in media:
+            media["media_type"] = media.get("new_media_type") or ""
+        if "is_blank_media" in media and "is_blank" not in media:
+            media["is_blank"] = _norm_bool(media.get("is_blank_media"))
+        if user.get("existing_media") and "existing_media" not in media:
+            media["existing_media"] = user.get("existing_media") or ""
+        user["media"] = media
+
+        accounts = user.get("accounts") or []
+        if accounts:
+            def joined(field: str) -> str:
+                values = []
+                for account in accounts:
+                    value = account.get(field)
+                    if value not in (None, "", "/") and str(value) not in values:
+                        values.append(str(value))
+                return ",".join(values)
+
+            user["account_number"] = user.get("account_number") or joined("account_number")
+            user["account_name"] = user.get("account_name") or joined("account_name_zh")
+            user["account_name_en"] = user.get("account_name_en") or joined("account_name_en")
+            user["account_status"] = user.get("account_status") or joined("account_status")
+            user["account_type"] = user.get("account_type") or joined("account_nature")
+            user["pay_receive_type"] = user.get("pay_receive_type") or joined("collection_payment_type")
+            user["payment_id"] = user.get("payment_id") or joined("payment_id")
+            user["query_id"] = user.get("query_id") or joined("query_id")
+            user["company_code"] = user.get("company_code") or joined("company_code")
+
+            merged_scope = dict(user.get("permission_scope") or {})
+            for account in accounts:
+                scope = account.get("permission_scope") or {}
+                for key in ["authorize", "payment", "query", "upload"]:
+                    merged_scope[key] = bool(merged_scope.get(key)) or bool(scope.get(key))
+            user["permission_scope"] = merged_scope
+
+    return data
 
 def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_paths: list[str]) -> dict:
     """
