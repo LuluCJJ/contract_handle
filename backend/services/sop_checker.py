@@ -139,11 +139,37 @@ def _pass_check(name: str, field_group: str, field_name: str, detail: str) -> Ch
 
 def _infer_scenario(value: str) -> str:
     value_upper = value.upper()
-    if "CANCEL" in value_upper or any(w in value for w in ["注销", "取消", "撤销", "停用"]):
+    if "CANCEL" in value_upper or any(w in value for w in ["注销", "取消", "撤销", "停用", "停止使用", "关闭权限", "Terminate", "Cancel"]):
         return "CANCEL"
-    if "OPEN" in value_upper or any(w in value for w in ["开通", "开立", "新增", "启用"]):
+    if "OPEN" in value_upper or any(w in value for w in ["开通", "开立", "新增", "启用", "申请", "办理", "加挂", "issuance", "new"]):
         return "OPEN"
+    if "MODIFY" in value_upper or any(w in value for w in ["变更", "修改", "维护", "更改服务", "调整"]):
+        return "MODIFY"
     return ""
+
+
+def _scenario_evidence_text(doc_ext: DocExtractedData) -> str:
+    """Use extracted intent evidence instead of scanning the whole template."""
+    parts = [
+        doc_ext.business_activity,
+        doc_ext.scenario_type,
+        doc_ext.action_type,
+        doc_ext.action_summary,
+        doc_ext.evidence_summary,
+    ]
+    for user in doc_ext.users:
+        parts.extend([user.action_on_permission, user.action_on_media])
+    return "\n".join(_text(p) for p in parts if _text(p).strip())
+
+
+def _is_hard_scenario_conflict(eflow_scenario: str, doc_scenario: str) -> bool:
+    if not eflow_scenario or not doc_scenario or eflow_scenario == doc_scenario:
+        return False
+    # 维护/变更表格经常承载新增用户、加挂介质或权限配置，不能只因
+    # MODIFY 与 OPEN/CANCEL 不同就判断为实质冲突。
+    if "MODIFY" in {eflow_scenario, doc_scenario}:
+        return False
+    return True
 
 
 def run_sop_checks(eflow: EFlowData, doc_ext: DocExtractedData, document_text: str = "") -> list[CheckResult]:
@@ -203,20 +229,35 @@ def run_sop_checks(eflow: EFlowData, doc_ext: DocExtractedData, document_text: s
         ))
 
     eflow_scenario = _infer_scenario(f"{eflow.business_type} {eflow.business_scenario}")
-    doc_scenario = _infer_scenario(f"{doc_ext.scenario_type} {doc_ext.action_type} {doc_ext.action_summary} {text}")
+    scenario_evidence = _scenario_evidence_text(doc_ext)
+    explicit_doc_scenario = (doc_ext.scenario_type or "").strip().upper()
+    doc_scenario = explicit_doc_scenario if explicit_doc_scenario in {"OPEN", "CANCEL", "MODIFY"} else _infer_scenario(scenario_evidence)
     conflict_words = rules.get("business_conflicts", {}).get(eflow_scenario, []) if eflow_scenario else []
-    hits = _contains_any(text, conflict_words)
-    if eflow_scenario and hits:
+    hits = _contains_any(scenario_evidence, conflict_words)
+    if _is_hard_scenario_conflict(eflow_scenario, doc_scenario):
         checks.append(_review_check(
             name="办理事项实质冲突复核",
             field_group="business_scenario",
             field_name="scenario_conflict",
             source_value=f"EFlow登记场景：{eflow_scenario}",
-            doc_value="、".join(hits[:6]),
+            doc_value=f"材料识别场景：{doc_scenario}",
             reason_code="BUSINESS_SUBSTANCE_CONFLICT",
-            detail="全文扫描发现与电子流办理方向相反的表述，建议确认材料描述是否与本次办理事项一致。",
-            evidence="、".join(hits),
+            detail="材料抽取出的办理方向与电子流登记方向相反，建议确认材料描述是否与本次办理事项一致。",
+            evidence=scenario_evidence,
             red=True,
+        ))
+    elif eflow_scenario and hits and not doc_scenario:
+        checks.append(_review_check(
+            name="办理事项表述需要确认",
+            field_group="business_scenario",
+            field_name="scenario_conflict",
+            source_value=f"EFlow登记场景：{eflow_scenario}",
+            doc_value="、".join(hits[:6]),
+            reason_code="BUSINESS_SUBSTANCE_REVIEW",
+            detail="材料场景未稳定识别，但抽取证据中出现可能与电子流方向相反的表述，建议人工确认。",
+            evidence=scenario_evidence,
+            severity=Severity.WARNING,
+            red=False,
         ))
     elif eflow_scenario and doc_scenario:
         checks.append(_pass_check("办理事项合理性复核", "business_scenario", "scenario_consistency", "未发现与电子流办理方向明显相反的表述。"))

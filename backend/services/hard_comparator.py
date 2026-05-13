@@ -22,6 +22,24 @@ def _is_name_match(name1: str, name2: str) -> bool:
     # 允许包含关系 (例如 "Wang Wei" vs "WangWei(CEO)")
     return c1 in c2 or c2 in c1
 
+def _clean_branch_name(value: str) -> str:
+    clean = _clean_str(value)
+    for prefix in [
+        "中国工商银行", "工商银行", "ICBC", "工行",
+        "中国银行", "BOC", "中行",
+        "中国建设银行", "建设银行", "CCB", "建行",
+        "北京", "上海", "深圳", "广州",
+    ]:
+        clean = clean.replace(_clean_str(prefix), "")
+    return clean
+
+def _is_branch_match(branch1: str, branch2: str) -> bool:
+    if _is_name_match(branch1, branch2):
+        return True
+    c1 = _clean_branch_name(branch1)
+    c2 = _clean_branch_name(branch2)
+    return bool(c1 and c2 and (c1 in c2 or c2 in c1))
+
 def _split_tokens(value: str) -> set[str]:
     """Split account/media fields that may contain multiple values in one cell."""
     if not value:
@@ -36,14 +54,31 @@ def _has_token_overlap(left: str, right: str) -> bool:
         return bool(left_tokens & right_tokens)
     return _clean_str(left) == _clean_str(right)
 
-def _scope_dict(user) -> dict[str, bool]:
+def _scope_dict(user, *, prefer_text: bool = False) -> dict[str, bool]:
     scope = user.permission_scope
-    return {
+    permission_text = " ".join([
+        str(user.permission_sub_type or ""),
+        str(scope.raw_text or ""),
+    ])
+    text_has = {
+        "payment": any(word in permission_text for word in ["制单", "经办", "录入", "提交", "付款", "支付", "转账", "汇款", "Maker", "Inputter"]),
+        "authorize": any(word in permission_text for word in ["授权", "复核", "审批", "放行", "授权员", "复核员", "Checker", "Authorizer", "Approver"]),
+        "query": any(word in permission_text for word in ["查询", "余额", "明细", "对账", "Query", "Inquiry"]),
+        "upload": any(word in permission_text for word in ["上传", "上载", "导入", "批量", "Upload", "Import"]),
+    }
+    result = {
         "authorize": bool(scope.authorize),
         "payment": bool(scope.payment),
         "query": bool(scope.query),
         "upload": bool(scope.upload),
     }
+    if prefer_text and permission_text.strip():
+        result = {key: value for key, value in text_has.items()}
+    else:
+        for key, value in text_has.items():
+            if value:
+                result[key] = True
+    return result
 
 def _scope_labels(keys: list[str]) -> str:
     labels = {
@@ -54,9 +89,34 @@ def _scope_labels(keys: list[str]) -> str:
     }
     return "、".join(labels.get(k, k) for k in keys)
 
+def _scope_label(key: str) -> str:
+    return _scope_labels([key])
+
 def _user_identity(user) -> str:
     parts = [user.user_name, user.account_number, user.media.media_number, user.permission_sub_type]
     return " / ".join(str(p) for p in parts if p)
+
+def _media_summary(media) -> str:
+    parts = [
+        media.media_type,
+        media.media_number,
+        f"{media.media_quantity}个" if getattr(media, "media_quantity", 0) else "",
+        media.existing_media,
+        "需注销" if media.needs_cancellation else "",
+    ]
+    return " / ".join(str(p) for p in parts if p)
+
+def _has_media_fact(user) -> bool:
+    media = user.media
+    return bool(
+        media.media_type
+        or media.media_number
+        or getattr(media, "media_quantity", 0)
+        or media.existing_media
+        or media.is_blank
+        or media.is_physical
+        or media.needs_cancellation
+    )
 
 def _match_score(ef_user, doc_user) -> int:
     score = 0
@@ -157,7 +217,7 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
     
     doc_type = doc_ext.source_type # "word" / "ocr" / "pdf"
 
-    # A1.1 网银平台/开户银行名称。只在两边都能稳定提取时执行，避免制造无意义噪音。
+    # A1.1 网银平台/开户银行名称。平台编号不参与核对；优先核对银行全称与分行信息。
     eflow_bank = eflow.platform.bank_name or eflow.platform.platform_name
     doc_bank = doc_ext.platform.bank_name or doc_ext.platform.platform_name
     if eflow_bank and doc_bank:
@@ -165,8 +225,8 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
         _append_check(
             checks,
             check_name="网银平台名称核对",
-            field_group="account",
-            field_name="bank_platform",
+            field_group="platform",
+            field_name="platform_name",
             source_a_label="EFlow登记平台",
             source_a_value=eflow_bank,
             source_b_label=f"材料识别-{doc_type}",
@@ -175,6 +235,39 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
             reason_code="BANK_PLATFORM_MATCH" if matched else "BANK_PLATFORM_MISMATCH",
             detail="网银平台/开户银行名称一致。" if matched else "电子流中的网银平台与材料中的银行名称不一致，建议确认是否存在跨银行错配。",
             scenario_type=doc_ext.scenario_type,
+        )
+        if eflow.platform.branch_name and doc_ext.platform.branch_name:
+            branch_matched = _is_branch_match(eflow.platform.branch_name, doc_ext.platform.branch_name)
+            _append_check(
+                checks,
+                check_name="网银平台分行核对",
+                field_group="platform",
+                field_name="platform_branch",
+                source_a_label="EFlow登记分行",
+                source_a_value=eflow.platform.branch_name,
+                source_b_label=f"材料识别-{doc_type}",
+                source_b_value=doc_ext.platform.branch_name,
+                matched=branch_matched,
+                reason_code="BANK_BRANCH_MATCH" if branch_matched else "BANK_BRANCH_MISMATCH",
+                detail="网银平台分行信息一致。" if branch_matched else "材料中的分行信息与电子流不一致，建议确认是否选错办理银行或分支机构。",
+                scenario_type=doc_ext.scenario_type,
+            )
+    elif eflow_bank and doc_type in ["word", "pdf"]:
+        _append_check(
+            checks,
+            check_name="网银平台名称需要确认",
+            field_group="platform",
+            field_name="platform_name",
+            source_a_label="EFlow登记平台",
+            source_a_value=eflow_bank,
+            source_b_label=f"材料识别-{doc_type}",
+            source_b_value="未稳定识别",
+            matched=False,
+            reason_code="BANK_PLATFORM_NOT_EXTRACTED",
+            detail="电子流中存在网银平台，但材料中未稳定识别到办理银行。建议结合文档标题、表头或银行关键位置确认办理平台。",
+            scenario_type=doc_ext.scenario_type,
+            manual=True,
+            severity=Severity.WARNING,
         )
 
     # 1. 对比公司信用代码
@@ -369,92 +462,79 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
                 evidence=f"match_score={match_score}",
             ))
             
-            # 如果名字对上，校验他们的账号
+            # 如果对象对上，校验该操作员名下办理的企业银行账户账号。
             if matched_ef_u and matched_ef_u.account_number and doc_u.account_number:
                 if not _has_token_overlap(matched_ef_u.account_number, doc_u.account_number):
                      checks.append(CheckResult(
-                        check_name=f"操作员({doc_u.user_name})账号绑定校验",
+                        check_name=f"操作员({doc_u.user_name})银行账户账号核对",
                         field_group="account",
-                        field_name="user_account",
+                        field_name="account_number",
                         scenario_type=doc_ext.scenario_type,
                         check_mode="consistency",
-                        source_a_label="EFlow下发", source_a_value=str(matched_ef_u.account_number),
-                        source_b_label="表单填写", source_b_value=str(doc_u.account_number),
+                        source_a_label="EFlow用户信息-银行账户账号", source_a_value=str(matched_ef_u.account_number),
+                        source_b_label="材料填写-银行账户账号", source_b_value=str(doc_u.account_number),
                         result="MISMATCH", severity=Severity.CRITICAL,
                         reason_code="USER_ACCOUNT_MISMATCH",
-                        detail="绑定账号与系统电子流账号打架，存在被篡改的重大合规风险"
+                        detail="材料中的银行账户账号与电子流用户信息中的 account_number 不一致，建议优先复核是否填错账户。"
                     ))
                 else:
                     checks.append(CheckResult(
-                        check_name=f"操作员({doc_u.user_name})账号绑定校验",
+                        check_name=f"操作员({doc_u.user_name})银行账户账号核对",
                         field_group="account",
-                        field_name="user_account",
+                        field_name="account_number",
                         scenario_type=doc_ext.scenario_type,
                         check_mode="consistency",
-                        source_a_label="EFlow下发", source_a_value=str(matched_ef_u.account_number),
-                        source_b_label="表单填写", source_b_value=str(doc_u.account_number),
+                        source_a_label="EFlow用户信息-银行账户账号", source_a_value=str(matched_ef_u.account_number),
+                        source_b_label="材料填写-银行账户账号", source_b_value=str(doc_u.account_number),
                         result="MATCH", severity=Severity.PASS,
                         reason_code="USER_ACCOUNT_MATCH",
-                        detail="绑定账号精准一致"
+                        detail="材料中的银行账户账号与电子流用户信息一致。"
                     ))
 
             if matched_ef_u:
                 ef_scope = _scope_dict(matched_ef_u)
-                doc_scope = _scope_dict(doc_u)
-                exceeded_permissions = [key for key, value in doc_scope.items() if value and not ef_scope.get(key, False)]
-                missing_permissions = [key for key, value in ef_scope.items() if value and not doc_scope.get(key, False)]
-                if exceeded_permissions:
+                doc_scope = _scope_dict(doc_u, prefer_text=True)
+                for permission_key in ["authorize", "payment", "query", "upload"]:
+                    ef_enabled = bool(ef_scope.get(permission_key))
+                    doc_enabled = bool(doc_scope.get(permission_key))
+                    if not ef_enabled and not doc_enabled:
+                        continue
+                    label = _scope_label(permission_key)
+                    if ef_enabled == doc_enabled:
+                        result = "MATCH"
+                        severity = Severity.PASS
+                        manual = False
+                        reason = f"USER_PERMISSION_{permission_key.upper()}_MATCH"
+                        detail = f"该操作员的{label}权限与电子流登记一致。"
+                    elif doc_enabled and not ef_enabled:
+                        result = "MISMATCH"
+                        severity = Severity.CRITICAL
+                        manual = True
+                        reason = f"USER_PERMISSION_{permission_key.upper()}_EXCEEDS_EFLOW"
+                        detail = f"材料中出现该操作员的{label}权限，但电子流未登记该权限，建议优先复核是否存在权限超配。"
+                    else:
+                        result = "MISSING"
+                        severity = Severity.WARNING
+                        manual = True
+                        reason = f"USER_PERMISSION_{permission_key.upper()}_MISSING"
+                        detail = f"电子流登记该操作员需要{label}权限，但材料中未稳定识别到该权限，建议确认材料是否遗漏或抽取是否不完整。"
                     checks.append(CheckResult(
-                        check_name=f"操作员({doc_u.user_name or matched_ef_u.user_name})权限范围超出",
+                        check_name=f"操作员({doc_u.user_name or matched_ef_u.user_name}){label}权限核对",
                         category="核心信息一致性检查",
                         field_group="permission",
-                        field_name="user_permission_scope",
+                        field_name=f"permission_{permission_key}",
                         scenario_type=doc_ext.scenario_type,
                         check_mode="object_level_consistency",
-                        source_a_label="EFlow用户权限",
-                        source_a_value=str(ef_scope),
-                        source_b_label="材料用户权限",
-                        source_b_value=str(doc_scope),
-                        result="MISMATCH",
-                        severity=Severity.CRITICAL,
-                        manual_confirmation_required=True,
-                        reason_code="USER_PERMISSION_SCOPE_EXCEEDS_EFLOW",
-                        detail=f"该操作员材料中的权限范围超出电子流登记范围，超出项：{_scope_labels(exceeded_permissions)}。",
-                    ))
-                elif missing_permissions:
-                    checks.append(CheckResult(
-                        check_name=f"操作员({doc_u.user_name or matched_ef_u.user_name})权限范围需确认",
-                        category="核心信息一致性检查",
-                        field_group="permission",
-                        field_name="user_permission_scope",
-                        scenario_type=doc_ext.scenario_type,
-                        check_mode="object_level_consistency",
-                        source_a_label="EFlow用户权限",
-                        source_a_value=str(ef_scope),
-                        source_b_label="材料用户权限",
-                        source_b_value=str(doc_scope),
-                        result="MISSING",
-                        severity=Severity.WARNING,
-                        manual_confirmation_required=True,
-                        reason_code="USER_PERMISSION_SCOPE_MISSING",
-                        detail=f"电子流登记的部分用户权限未能在材料中稳定识别，缺少项：{_scope_labels(missing_permissions)}。",
-                    ))
-                elif any(ef_scope.values()) or any(doc_scope.values()):
-                    checks.append(CheckResult(
-                        check_name=f"操作员({doc_u.user_name or matched_ef_u.user_name})权限范围核对",
-                        category="核心信息一致性检查",
-                        field_group="permission",
-                        field_name="user_permission_scope",
-                        scenario_type=doc_ext.scenario_type,
-                        check_mode="object_level_consistency",
-                        source_a_label="EFlow用户权限",
-                        source_a_value=str(ef_scope),
-                        source_b_label="材料用户权限",
-                        source_b_value=str(doc_scope),
-                        result="MATCH",
-                        severity=Severity.PASS,
-                        reason_code="USER_PERMISSION_SCOPE_MATCH",
-                        detail="该操作员材料权限范围与电子流登记权限一致。",
+                        source_a_label=f"EFlow用户权限-{label}",
+                        source_a_value="需要" if ef_enabled else "未登记",
+                        source_b_label=f"材料识别权限-{label}",
+                        source_b_value="出现" if doc_enabled else "未稳定识别",
+                        result=result,
+                        severity=severity,
+                        manual_confirmation_required=manual,
+                        reason_code=reason,
+                        detail=detail,
+                        evidence=doc_u.permission_scope.raw_text,
                     ))
 
                 if matched_ef_u.account_name and doc_u.account_name:
@@ -540,6 +620,81 @@ def run_hard_comparisons(eflow: EFlowData, doc_ext: DocExtractedData) -> list[Ch
                         reason_code="MEDIA_NUMBER_MATCH" if matched else "MEDIA_NUMBER_MISMATCH",
                         detail="介质编号一致。" if matched else "材料中的介质编号与电子流不一致，建议确认是否为正确介质。",
                         scenario_type=doc_ext.scenario_type,
+                    )
+                if matched_ef_u.media.media_type or doc_u.media.media_type:
+                    if matched_ef_u.media.media_type and doc_u.media.media_type:
+                        matched = _is_name_match(matched_ef_u.media.media_type, doc_u.media.media_type)
+                        _append_check(
+                            checks,
+                            check_name="介质类型核对",
+                            field_group="media",
+                            field_name="media_type",
+                            source_a_label="EFlow介质类型",
+                            source_a_value=matched_ef_u.media.media_type,
+                            source_b_label="材料介质类型",
+                            source_b_value=doc_u.media.media_type,
+                            matched=matched,
+                            reason_code="MEDIA_TYPE_MATCH" if matched else "MEDIA_TYPE_MISMATCH",
+                            detail="介质类型一致。" if matched else "材料中的介质类型与电子流不一致，建议确认是 U盾、Token 还是数字证书。",
+                            scenario_type=doc_ext.scenario_type,
+                            manual=not matched,
+                            severity=Severity.WARNING,
+                        )
+                    elif matched_ef_u.media.media_type and doc_ext.source_type in ["word", "pdf"]:
+                        _append_check(
+                            checks,
+                            check_name="介质类型需要确认",
+                            field_group="media",
+                            field_name="media_type",
+                            source_a_label="EFlow介质类型",
+                            source_a_value=matched_ef_u.media.media_type,
+                            source_b_label="材料介质类型",
+                            source_b_value="未稳定识别",
+                            matched=False,
+                            reason_code="MEDIA_TYPE_NOT_EXTRACTED",
+                            detail="电子流涉及介质办理，但材料中未稳定识别介质类型，建议确认是否申请/加挂了正确介质。",
+                            scenario_type=doc_ext.scenario_type,
+                            manual=True,
+                            severity=Severity.WARNING,
+                        )
+                if (matched_ef_u.action_on_media or doc_u.action_on_media) and (_has_media_fact(matched_ef_u) or _has_media_fact(doc_u)):
+                    ef_action = _clean_str(matched_ef_u.action_on_media)
+                    doc_action = _clean_str(doc_u.action_on_media)
+                    if ef_action and doc_action:
+                        matched = ef_action == doc_action
+                        _append_check(
+                            checks,
+                            check_name="介质办理动作核对",
+                            field_group="media",
+                            field_name="media_action",
+                            source_a_label="EFlow介质办理要求",
+                            source_a_value=matched_ef_u.action_on_media,
+                            source_b_label="材料介质办理动作",
+                            source_b_value=doc_u.action_on_media,
+                            matched=matched,
+                            reason_code="MEDIA_ACTION_MATCH" if matched else "MEDIA_ACTION_MISMATCH",
+                            detail="介质办理动作一致。" if matched else "材料中的介质办理动作与电子流不一致，建议确认是新增、加挂、保留还是注销介质。",
+                            scenario_type=doc_ext.scenario_type,
+                            manual=not matched,
+                            severity=Severity.WARNING,
+                        )
+                if matched_ef_u.media.media_quantity and doc_u.media.media_quantity:
+                    matched = matched_ef_u.media.media_quantity == doc_u.media.media_quantity
+                    _append_check(
+                        checks,
+                        check_name="介质数量核对",
+                        field_group="media",
+                        field_name="media_quantity",
+                        source_a_label="EFlow介质数量",
+                        source_a_value=str(matched_ef_u.media.media_quantity),
+                        source_b_label="材料介质数量",
+                        source_b_value=str(doc_u.media.media_quantity),
+                        matched=matched,
+                        reason_code="MEDIA_QUANTITY_MATCH" if matched else "MEDIA_QUANTITY_MISMATCH",
+                        detail="介质数量一致。" if matched else "材料中的介质数量与电子流不一致，建议确认申请了几个介质。",
+                        scenario_type=doc_ext.scenario_type,
+                        manual=not matched,
+                        severity=Severity.WARNING,
                     )
 
     return [

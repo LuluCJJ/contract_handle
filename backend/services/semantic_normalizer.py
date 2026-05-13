@@ -42,6 +42,17 @@ def _infer_from_mapping(text: str, mapping: dict[str, list[str]]) -> tuple[str, 
     return "", ""
 
 
+def _is_template_wrapper_scenario(left: str, right: str) -> bool:
+    """MODIFY/maintenance forms can carry open/cancel actions.
+
+    Treating MODIFY vs OPEN as a hard contradiction caused false positives for
+    bank templates named "change/maintenance" that are used to add users,
+    configure permissions, or issue media.
+    """
+    scenarios = {left, right}
+    return "MODIFY" in scenarios and bool(scenarios & {"OPEN", "CANCEL"})
+
+
 def _doc_text(doc_ext: DocExtractedData) -> str:
     parts = [
         doc_ext.business_activity,
@@ -130,6 +141,8 @@ def run_semantic_normalization_checks(eflow: EFlowData, doc_ext: DocExtractedDat
     inferred_doc_scenario, doc_phrase = _infer_from_mapping(doc_text, scenario_map)
     if doc_scenario in ("", "UNKNOWN"):
         doc_scenario = inferred_doc_scenario
+    if doc_scenario and doc_scenario not in ("UNKNOWN", ""):
+        doc_phrase = doc_ext.scenario_type or doc_phrase
 
     if eflow_scenario and doc_scenario:
         if eflow_scenario == doc_scenario:
@@ -150,6 +163,27 @@ def run_semantic_normalization_checks(eflow: EFlowData, doc_ext: DocExtractedDat
                 detail="文档办理事项与电子流登记事项语义一致。",
                 evidence=f"EFlow命中:{eflow_phrase}; 文档命中:{doc_phrase}",
                 confidence=0.9,
+            ))
+        elif _is_template_wrapper_scenario(eflow_scenario, doc_scenario):
+            checks.append(CheckResult(
+                check_name="办理事项模板口径需要确认",
+                category="业务要素核对",
+                field_group="business_scenario",
+                field_name="scenario_type",
+                scenario_type=doc_scenario,
+                check_mode="semantic_normalization",
+                source_a_label="EFlow登记事项",
+                source_a_value=eflow.business_scenario or eflow.business_type,
+                source_b_label="文档语义识别",
+                source_b_value=doc_ext.scenario_type or inferred_doc_scenario,
+                result="REVIEW",
+                severity=Severity.WARNING,
+                manual_confirmation_required=True,
+                reason_code="SCENARIO_TEMPLATE_WRAPPER_REVIEW",
+                detail="材料使用变更/维护类模板承载本次办理事项，当前不作为方向相反处理，建议结合具体勾选项确认是否为新增、开通、注销或介质办理。",
+                evidence=f"EFlow命中:{eflow_phrase}; 文档场景:{doc_phrase}",
+                confidence=0.72,
+                requires_config_review=True,
             ))
         else:
             checks.append(CheckResult(
@@ -192,7 +226,11 @@ def run_semantic_normalization_checks(eflow: EFlowData, doc_ext: DocExtractedDat
             requires_config_review=True,
         ))
 
-    if doc_ext.source_type in ("word", "pdf") and doc_ext.users:
+    # Permission comparison is now produced at matched user/object level by
+    # hard_comparator. Keep this aggregate fallback only when EFlow has no user
+    # detail, otherwise it creates repeated "permission scope" findings that are
+    # hard for business users to read.
+    if doc_ext.source_type in ("word", "pdf") and doc_ext.users and not eflow.users:
         eflow_scope = _eflow_permission_scope(eflow)
         doc_scope, scope_evidence = _combined_permission_scope(doc_ext, rules)
         exceeded = [key for key, value in doc_scope.items() if value and not eflow_scope.get(key, False)]

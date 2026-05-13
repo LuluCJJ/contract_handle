@@ -73,6 +73,7 @@ class PermissionScope(BaseModel):
 class MediaInfo(BaseModel):
     media_type: str = ""       # Token(OTP), 证书等
     media_number: str = ""
+    media_quantity: int = 0
     is_blank: bool = False
     existing_media: str = ""   # 已有介质详情
     is_physical: bool = False
@@ -171,6 +172,43 @@ class DocAnalysisReport(BaseModel):
     hard_checks: List[CheckResult] = Field(default_factory=list)
     semantic_checks: List[CheckResult] = Field(default_factory=list)
 
+
+class CheckPointEvidence(BaseModel):
+    doc_name: str = ""
+    doc_type: str = ""
+    check_name: str = ""
+    traffic_light: str = ""
+    reason_code: str = ""
+    source_a_label: str = ""
+    source_a_value: str = ""
+    source_b_label: str = ""
+    source_b_value: str = ""
+    evidence: str = ""
+    detail: str = ""
+    field_group: str = ""
+    field_name: str = ""
+    check_block: str = ""
+    check_mode: str = ""
+
+
+class CheckPoint(BaseModel):
+    """Business-facing aggregated check point for report rendering."""
+    key: str = ""
+    title: str = ""
+    order: int = 99
+    traffic_light: str = ""
+    severity: Severity = Severity.PASS
+    business_status: str = ""
+    summary: str = ""
+    suggestion: str = ""
+    source_a_label: str = "电子流登记信息"
+    source_a_value: str = ""
+    source_b_label: str = "材料识别信息"
+    source_b_value: str = ""
+    doc_names: List[str] = Field(default_factory=list)
+    evidence_snippets: List[str] = Field(default_factory=list)
+    evidence_items: List[CheckPointEvidence] = Field(default_factory=list)
+
 class OverallStatus(str, Enum):
     HIGH_RISK = "HIGH_RISK"
     MED_RISK = "MED_RISK"
@@ -184,6 +222,7 @@ class AuditReport(BaseModel):
     eflow_data: EFlowData = Field(default_factory=EFlowData)
     document_reports: List[DocAnalysisReport] = Field(default_factory=list)
     cross_validation_checks: List[CheckResult] = Field(default_factory=list)
+    check_points: List[CheckPoint] = Field(default_factory=list)
     summary: str = ""
     llm_summary: dict = Field(default_factory=dict)
     manual_confirmation_items: List[Dict[str, Any]] = Field(default_factory=list)

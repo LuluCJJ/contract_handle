@@ -338,8 +338,192 @@ function collectAllCheckItems(report) {
     return items;
 }
 
+function checkPointMeta(check) {
+    const group = String(check.field_group || '').toLowerCase();
+    const name = String(check.field_name || '').toLowerCase();
+    const code = String(check.reason_code || '').toUpperCase();
+    const block = String(check.check_block || '').toUpperCase();
+
+    if (block === 'B2_RISK_CLAUSE') return { key: 'risk_clause', label: '风险条款/敏感词', order: 90 };
+    if (group === 'platform' || name.includes('platform') || code.includes('BANK_PLATFORM') || code.includes('BANK_BRANCH')) {
+        return { key: 'platform', label: '网银平台', order: 10 };
+    }
+    if (group === 'business_scenario' || code.includes('SCENARIO') || name.includes('action')) {
+        return { key: 'business_type', label: '办理事项', order: 20 };
+    }
+    if (group === 'permission' || name.includes('permission') || code.includes('PERMISSION') || code.includes('SCOPE')) {
+        return { key: 'permission_scope', label: '权限范围', order: 30 };
+    }
+    if (group === 'media' || name.includes('media') || code.includes('TOKEN')) {
+        return { key: 'media', label: '网银介质', order: 40 };
+    }
+    if (group === 'account' && (name.includes('account_name') || code.includes('ACCOUNT_NAME'))) {
+        return { key: 'account_name', label: '账户名称', order: 50 };
+    }
+    if (group === 'account' || name.includes('account') || code.includes('ACCOUNT')) {
+        return { key: 'account_number', label: '账户账号', order: 55 };
+    }
+    if (name.includes('id') || code.includes('ID_NUMBER') || code.includes('ID_')) {
+        return { key: 'identity_number', label: '证件号码', order: 60 };
+    }
+    if (group === 'subject' || code.includes('USER_') || code.includes('PERSON') || code.includes('WHITELIST') || name.includes('applicant')) {
+        return { key: 'identity_name', label: '操作员身份', order: 65 };
+    }
+    if (group === 'compliance') return { key: 'document_compliance', label: '填写规范', order: 80 };
+    return { key: `supplement_${group || name || code || 'other'}`, label: businessFieldLabel(check), order: 99 };
+}
+
+function worstLight(items) {
+    if (items.some(item => trafficLight(item.check) === 'RED')) return 'RED';
+    if (items.some(item => trafficLight(item.check) === 'YELLOW')) return 'YELLOW';
+    return 'GREEN';
+}
+
+function aggregateCheckPointItems(report) {
+    const rawItems = collectAllCheckItems(report);
+    const buckets = new Map();
+    rawItems.forEach(item => {
+        const c = item.check || {};
+        const meta = checkPointMeta(c);
+        const key = meta.key;
+        if (!buckets.has(key)) {
+            buckets.set(key, { meta, children: [] });
+        }
+        buckets.get(key).children.push(item);
+    });
+
+    const aggregated = Array.from(buckets.values()).map(bucket => {
+        const children = bucket.children
+            .slice()
+            .sort((a, b) => trafficSortScore(a) - trafficSortScore(b) || priorityScore(a) - priorityScore(b));
+        const representative = children[0] || {};
+        const light = worstLight(children);
+        const docNames = [...new Set(children.map(item => item.doc_name).filter(Boolean))];
+        const check = {
+            ...(representative.check || {}),
+            check_name: bucket.meta.label,
+            detail: aggregateDetail(children),
+            traffic_light: light,
+            severity: light === 'RED' ? 'CRITICAL' : (light === 'YELLOW' ? 'WARNING' : 'PASS'),
+            manual_confirmation_required: light === 'YELLOW' || children.some(item => item.check?.manual_confirmation_required),
+            source_a_label: '电子流登记信息',
+            source_a_value: aggregateSideValue(children, 'a'),
+            source_b_label: '材料识别信息',
+            source_b_value: aggregateSideValue(children, 'b'),
+        };
+        return {
+            ...representative,
+            doc_name: docNames.join('、') || representative.doc_name || '整套材料',
+            check,
+            children,
+            check_point_label: bucket.meta.label,
+            check_point_order: bucket.meta.order,
+            is_aggregate: true,
+        };
+    });
+
+    return aggregated.sort((a, b) =>
+        trafficSortScore(a) - trafficSortScore(b)
+        || (a.check_point_order || 99) - (b.check_point_order || 99)
+        || priorityScore(a) - priorityScore(b)
+    );
+}
+
+function aggregateDetail(children) {
+    const visible = children
+        .filter(item => trafficLight(item.check) !== 'GREEN')
+        .slice(0, 4);
+    const base = visible.length ? visible : children.slice(0, 2);
+    const meta = checkPointMeta((children[0] || {}).check || {});
+    if (meta.key === 'permission_scope') {
+        const missing = children
+            .filter(item => trafficLight(item.check) !== 'GREEN')
+            .map(item => permissionNameFromCheck(item.check))
+            .filter(Boolean);
+        const unique = [...new Set(missing)];
+        if (unique.length) {
+            return `权限范围按授权、支付、查询、上传拆分核对；当前需关注：${unique.join('、')}。${mergeExplain(children)}`;
+        }
+    }
+    if (meta.key === 'identity_name') {
+        return `人员身份相关核对已合并展示，包含操作员、申请人或证件持有人与电子流人员池的匹配情况。${mergeExplain(children)}`;
+    }
+    const details = base.map(item => businessDetailText(item.check || {})).filter(Boolean);
+    const unique = [...new Set(details)];
+    return `${unique.join('；') || '该检查点未发现明显异常。'}${mergeExplain(children)}`;
+}
+
+function mergeExplain(children) {
+    return children.length > 1 ? `（包含 ${children.length} 项底层核对，点“看依据”可展开查看）` : '';
+}
+
+function permissionNameFromCheck(check) {
+    const text = `${check?.field_name || ''} ${check?.reason_code || ''} ${check?.check_name || ''}`;
+    if (/AUTHORIZE|authorize|授权|复核/.test(text)) return '授权/复核';
+    if (/PAYMENT|payment|支付|转账|付款/.test(text)) return '支付/转账';
+    if (/QUERY|query|查询/.test(text)) return '查询';
+    if (/UPLOAD|upload|上传|上载/.test(text)) return '上传/导入';
+    return businessCheckTitle(check || {});
+}
+
+function aggregateSideValue(children, side) {
+    const values = [];
+    children.forEach(item => {
+        const c = item.check || {};
+        const label = side === 'a' ? c.source_a_label : c.source_b_label;
+        const value = side === 'a' ? c.source_a_value : c.source_b_value;
+        const formatted = formatBusinessValue(value);
+        if (!formatted || formatted === '未填写或未识别') return;
+        const text = label ? `${label}：${formatted}` : formatted;
+        values.push(text);
+    });
+    const unique = [...new Set(values)];
+    if (!unique.length) return side === 'a' ? '电子流未提供可展示值' : '材料未稳定识别可展示值';
+    return unique.slice(0, 5).join('\n');
+}
+
+function normalizeBackendCheckPoints(report) {
+    const points = Array.isArray(report?.check_points) ? report.check_points : [];
+    if (!points.length) return null;
+    return points.map(point => {
+        const evidenceItems = Array.isArray(point.evidence_items) ? point.evidence_items : [];
+        const check = {
+            check_name: point.title || '检查点',
+            detail: point.summary || '该检查点需要查看依据。',
+            traffic_light: point.traffic_light || 'GREEN',
+            severity: point.severity || (point.traffic_light === 'RED' ? 'CRITICAL' : point.traffic_light === 'YELLOW' ? 'WARNING' : 'PASS'),
+            manual_confirmation_required: point.traffic_light === 'YELLOW',
+            source_a_label: point.source_a_label || '电子流登记信息',
+            source_a_value: point.source_a_value || '',
+            source_b_label: point.source_b_label || '材料识别信息',
+            source_b_value: point.source_b_value || '',
+            reason_code: point.key || '',
+            field_group: point.key || '',
+            check_block: 'CHECK_POINT',
+        };
+        return {
+            doc_name: (point.doc_names || []).join('、') || '整套材料',
+            doc_type: 'check_point',
+            extracted_data: {},
+            check,
+            check_point: point,
+            check_point_label: point.title,
+            check_point_order: point.order || 99,
+            evidence_items: evidenceItems,
+            is_backend_check_point: true,
+        };
+    }).sort((a, b) =>
+        trafficSortScore(a) - trafficSortScore(b)
+        || (a.check_point_order || 99) - (b.check_point_order || 99)
+    );
+}
+
+function collectBusinessCheckPointItems(report) {
+    return normalizeBackendCheckPoints(report) || aggregateCheckPointItems(report);
+}
+
 function collectCheckStats(report) {
-    const checks = collectAllCheckItems(report);
+    const checks = collectBusinessCheckPointItems(report);
 
     const total = checks.length;
     const pass = checks.filter(item => trafficLight(item.check) === 'GREEN').length;
@@ -394,12 +578,9 @@ function renderCheckOverviewBoard(report) {
     if (!container) return;
 
     CURRENT_REPORT = report;
-    const allItems = collectAllCheckItems(report);
-    const sortedItems = allItems
-        .slice()
-        .sort((a, b) => trafficSortScore(a) - trafficSortScore(b) || priorityScore(a) - priorityScore(b));
+    const sortedItems = collectBusinessCheckPointItems(report);
     CURRENT_ISSUE_ITEMS = sortedItems;
-    CURRENT_BOARD_ITEMS = allItems;
+    CURRENT_BOARD_ITEMS = sortedItems;
     closeEvidenceDrawer();
 
     const stats = collectCheckStats(report);
@@ -423,8 +604,9 @@ function renderCheckOverviewBoard(report) {
                     <p>${escapeHtml(businessDetailText(c))}</p>
                 </td>
                 <td>
-                    <span class="validation-tag">${escapeHtml(checkBlockLabel(c))}</span>
+                    <span class="validation-tag">${escapeHtml(item.is_backend_check_point ? '业务检查点' : checkBlockLabel(c))}</span>
                     <span class="validation-tag muted">${escapeHtml(item.doc_name)}</span>
+                    ${(item.evidence_items?.length || item.children?.length || 0) > 1 ? `<span class="validation-tag muted">底层核对 ${item.evidence_items?.length || item.children.length} 项</span>` : ''}
                 </td>
                 <td>${escapeHtml(issueActionText(c))}</td>
                 <td>
@@ -631,11 +813,91 @@ function renderRuleCandidatePanel() {
 }
 
 function buildEvidenceSnippet(item) {
+    if (item.is_backend_check_point) {
+        const snippets = item.check_point?.evidence_snippets || [];
+        if (snippets.length) return snippets.slice(0, 5).join('\n\n---\n\n').slice(0, 2200);
+    }
+    if (item.children && item.children.length > 0) {
+        const snippets = item.children
+            .map(child => {
+                const c = child.check || {};
+                return c.evidence || c.source_b_value || child.extracted_data?.evidence_summary || child.extracted_data?.action_summary || '';
+            })
+            .filter(Boolean)
+            .map(v => String(v).trim())
+            .filter(Boolean);
+        const unique = [...new Set(snippets)];
+        if (unique.length) return unique.slice(0, 4).join('\n\n---\n\n').slice(0, 2200);
+    }
     const c = item.check || {};
     const ed = item.extracted_data || {};
-    const raw = ed.evidence_summary || ed.action_summary || ed.raw_text || '';
+    const raw = c.evidence || c.source_b_value || ed.evidence_summary || ed.action_summary || ed.raw_text || '';
     if (!raw) return '暂无可展示的解析依据。';
     return String(raw).slice(0, 2200);
+}
+
+function renderChildEvidenceRows(item) {
+    if (item.is_backend_check_point) {
+        const rows = item.evidence_items || [];
+        if (rows.length <= 1) return '';
+        return `
+            <div class="evidence-section">
+                <h4>本检查点为什么合并展示</h4>
+                <p class="evidence-explain">这些底层核对都指向同一个业务检查点：${escapeHtml(item.check_point_label || businessCheckTitle(item.check))}。主页面合并展示，避免同一事项反复刷屏；这里保留每条底层核对的电子流值、材料值和依据。</p>
+                <table class="evidence-child-table">
+                    <thead>
+                        <tr>
+                            <th>底层核对</th>
+                            <th>状态</th>
+                            <th>电子流登记</th>
+                            <th>材料识别</th>
+                            <th>依据片段</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.map(row => `
+                            <tr>
+                                <td>${escapeHtml(row.check_name || '底层核对')}<br><span>${escapeHtml(row.reason_code || '')}</span></td>
+                                <td>${escapeHtml({ GREEN: '绿灯通过', YELLOW: '审核人确认', RED: '发现不一致' }[row.traffic_light] || row.traffic_light || '待查看')}</td>
+                                <td>${escapeHtml(formatBusinessValue(row.source_a_value))}</td>
+                                <td>${escapeHtml(formatBusinessValue(row.source_b_value))}</td>
+                                <td>${escapeHtml(String(row.evidence || row.detail || '暂无专项片段').slice(0, 160))}</td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+    }
+    if (!item.children || item.children.length <= 1) return '';
+    return `
+        <div class="evidence-section">
+            <h4>本检查点为什么合并展示</h4>
+            <p class="evidence-explain">这些底层核对都指向同一个业务检查点：${escapeHtml(item.check_point_label || businessCheckTitle(item.check))}。页面合并展示是为了避免同一事项反复刷屏，下面保留每条底层核对的电子流值、材料值和证据。</p>
+            <table class="evidence-child-table">
+                <thead>
+                    <tr>
+                        <th>底层核对</th>
+                        <th>状态</th>
+                        <th>电子流登记</th>
+                        <th>材料识别</th>
+                        <th>依据片段</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${item.children.map(child => {
+                        const cc = child.check || {};
+                        const evidence = cc.evidence || child.extracted_data?.evidence_summary || child.extracted_data?.action_summary || '';
+                        return `
+                            <tr>
+                                <td>${escapeHtml(businessCheckTitle(cc))}<br><span>${escapeHtml(cc.reason_code || '')}</span></td>
+                                <td>${escapeHtml(trafficLabel(cc))}</td>
+                                <td>${escapeHtml(formatBusinessValue(cc.source_a_value))}</td>
+                                <td>${escapeHtml(formatBusinessValue(cc.source_b_value))}</td>
+                                <td>${escapeHtml(String(evidence || '暂无专项片段').slice(0, 160))}</td>
+                            </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>
+        </div>`;
 }
 
 function showEvidence(index) {
@@ -648,6 +910,7 @@ function showEvidence(index) {
     if (!drawer || !title || !content) return;
 
     const c = item.check || {};
+    const childEvidence = renderChildEvidenceRows(item);
     title.innerText = businessCheckTitle(c);
     content.innerHTML = `
         <div class="evidence-section evidence-risk">
@@ -656,12 +919,12 @@ function showEvidence(index) {
         </div>
         <div class="evidence-grid">
             <div class="evidence-field">
-                <label>电子流中登记的信息</label>
-                <div>${escapeHtml(formatBusinessValue(c.source_a_value))}</div>
+                <label>${escapeHtml(c.source_a_label || '电子流中登记的信息')}</label>
+                <div style="white-space:pre-wrap;">${escapeHtml(formatBusinessValue(c.source_a_value))}</div>
             </div>
             <div class="evidence-field">
-                <label>申请材料中识别的信息</label>
-                <div>${escapeHtml(formatBusinessValue(c.source_b_value))}</div>
+                <label>${escapeHtml(c.source_b_label || '申请材料中识别的信息')}</label>
+                <div style="white-space:pre-wrap;">${escapeHtml(formatBusinessValue(c.source_b_value))}</div>
             </div>
         </div>
         <div class="evidence-meta">
@@ -671,9 +934,10 @@ function showEvidence(index) {
         </div>
         ${c.manual_confirmation_required ? '<div class="evidence-manual"><i class="ri-user-search-line"></i> 该事项需要人工确认，系统仅作辅助提示。</div>' : ''}
         <div class="evidence-section">
-            <h4>材料原文 / 解析片段</h4>
+            <h4>与本检查点相关的材料原文 / 解析片段</h4>
             <pre>${escapeHtml(buildEvidenceSnippet(item))}</pre>
         </div>
+        ${childEvidence}
         <details class="technical-detail">
             <summary>给产品/IT查看的技术信息</summary>
             <div class="technical-detail-grid">

@@ -28,8 +28,8 @@
       "permission_sub_type": "制单员",
       "permission_scope": {
         "authorize": false,
-        "payment": false,
-        "query": true,
+        "payment": true,
+        "query": false,
         "upload": false
       },
       "account_number": "454676800100123456,454676800100789012",

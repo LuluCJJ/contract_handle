@@ -20,7 +20,7 @@ from backend.models.schemas import (
 )
 from backend.services import (
     doc_parser, ocr_service, extractor, comparator, reporter, hard_comparator,
-    semantic_normalizer, sop_checker, risk_clause_checker
+    semantic_normalizer, sop_checker, risk_clause_checker, check_point_builder
 )
 from backend.services.check_taxonomy import CheckBlock, CheckLayer, tag_check
 
@@ -213,6 +213,7 @@ def _run_pipeline(task_id: str, eflow_path: str, docs_paths: list[str], img_path
         eflow_data=eflow,
         document_reports=document_reports,
         cross_validation_checks=cross_validator_checks,
+        check_points=check_point_builder.build_check_points(document_reports, cross_validator_checks),
         llm_summary=global_summary,
         scenario_summary=global_summary.get("scenario_summary", "")
     )

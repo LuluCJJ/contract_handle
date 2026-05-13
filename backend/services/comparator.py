@@ -18,6 +18,69 @@ from backend.models.schemas import EFlowData, DocExtractedData, CheckResult, Sev
 from backend.services.check_taxonomy import CheckBlock, CheckLayer, tag_check
 
 
+def _infer_basic_scenario(value: str) -> str:
+    text = str(value or "").upper()
+    if "MODIFY" in text or any(word in str(value or "") for word in ["变更", "维护", "更改服务", "调整"]):
+        return "MODIFY"
+    if "CANCEL" in text or any(word in str(value or "") for word in ["注销", "取消", "撤销", "停用"]):
+        return "CANCEL"
+    if "OPEN" in text or any(word in str(value or "") for word in ["开通", "新增", "申请", "加挂", "启用"]):
+        return "OPEN"
+    return ""
+
+
+def _soften_template_wrapper_check(eflow: EFlowData, doc_ext: DocExtractedData, item: dict) -> dict:
+    """Downgrade LLM hard conflicts when a maintenance template wraps the action."""
+    field_group = str(item.get("field_group", "")).lower()
+    if field_group != "business_scenario":
+        return item
+    eflow_scenario = _infer_basic_scenario(f"{eflow.business_type} {eflow.business_scenario}")
+    doc_scenario = (doc_ext.scenario_type or "").strip().upper() or _infer_basic_scenario(
+        f"{doc_ext.business_activity} {doc_ext.action_type} {doc_ext.action_summary}"
+    )
+    if "MODIFY" not in {eflow_scenario, doc_scenario}:
+        return item
+    if not ({eflow_scenario, doc_scenario} & {"OPEN", "CANCEL"}):
+        return item
+    updated = dict(item)
+    updated["severity"] = "WARNING"
+    updated["result"] = "REVIEW"
+    updated["manual_confirmation_required"] = True
+    updated["reason_code"] = "SCENARIO_TEMPLATE_WRAPPER_REVIEW"
+    updated["check_name"] = "办理事项模板口径需要确认"
+    updated["detail"] = "材料使用变更/维护类模板承载本次办理事项，当前不作为方向相反处理，建议结合具体勾选项确认是否为新增、开通、注销或介质办理。"
+    return updated
+
+
+def _should_skip_llm_check(eflow: EFlowData, doc_ext: DocExtractedData, item: dict) -> bool:
+    """Drop noisy LLM checks already covered by deterministic check points."""
+    field_group = str(item.get("field_group", "")).lower()
+    field_name = str(item.get("field_name", "")).lower()
+    reason_code = str(item.get("reason_code", "")).upper()
+    check_name = str(item.get("check_name", ""))
+
+    if field_group == "platform":
+        if (
+            "CODE" in field_name.upper()
+            or "CODE" in reason_code
+            or "代码" in check_name
+        ):
+            return True
+        if doc_ext.platform.bank_name or doc_ext.platform.platform_name:
+            return True
+
+    if field_group == "permission" and eflow.users:
+        if "permission_scope" in field_name or "PERMISSION_SCOPE" in reason_code or "权限范围" in check_name:
+            return True
+
+    if field_group == "account" and field_name == "account_status":
+        # EFlow-side status is checked deterministically. Bank forms often do
+        # not repeat status, so LLM "missing status" messages are noise.
+        return True
+
+    return False
+
+
 def _derive_scenario_summary(eflow: EFlowData, all_docs_reports: list[dict], cross_checks: list[CheckResult]) -> str:
     """优先基于结构化结果生成场景摘要，避免被单边 EFlow 或单次 LLM 总结带偏。"""
     scenario_counts = {}
@@ -47,9 +110,17 @@ def _derive_scenario_summary(eflow: EFlowData, all_docs_reports: list[dict], cro
 
         for c in (rep.get("semantic_checks", []) or []) + (rep.get("hard_checks", []) or []):
             detail = str(c.get("detail", ""))
-            if c.get("field_group") == "business_scenario" and c.get("severity") == "CRITICAL":
+            if (
+                c.get("field_group") == "business_scenario"
+                and c.get("severity") == "CRITICAL"
+                and c.get("reason_code") != "SCENARIO_TEMPLATE_WRAPPER_REVIEW"
+            ):
                 has_scenario_conflict = True
-            if "场景" in detail and ("冲突" in detail or "矛盾" in detail):
+            if (
+                "场景" in detail
+                and ("冲突" in detail or "矛盾" in detail)
+                and c.get("reason_code") != "SCENARIO_TEMPLATE_WRAPPER_REVIEW"
+            ):
                 has_scenario_conflict = True
 
     dominant_scenario = max(scenario_counts, key=scenario_counts.get) if scenario_counts else ""
@@ -100,7 +171,10 @@ def run_semantic_analyzer(eflow: EFlowData, doc_ext: DocExtractedData) -> list[C
     try:
         res = chat_json(system_prompt, user_prompt)
         checks = []
-        for item in res.get("semantic_checks", []):
+        for raw_item in res.get("semantic_checks", []):
+            item = _soften_template_wrapper_check(eflow, doc_ext, raw_item)
+            if _should_skip_llm_check(eflow, doc_ext, item):
+                continue
             sev_str = item.get("severity", "PASS").upper()
             sev = Severity.PASS
             if sev_str in ["FAIL", "CRITICAL"]: sev = Severity.CRITICAL

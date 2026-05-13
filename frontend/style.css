@@ -1368,6 +1368,45 @@ body {
     margin-bottom: 8px;
 }
 
+.evidence-explain {
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.6;
+    margin: 0 0 10px;
+}
+
+.evidence-child-table {
+    border-collapse: collapse;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-size: 12px;
+    overflow: hidden;
+    table-layout: fixed;
+    width: 100%;
+}
+
+.evidence-child-table th,
+.evidence-child-table td {
+    border-top: 1px solid #e2e8f0;
+    color: #334155;
+    line-height: 1.5;
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+    word-break: break-word;
+}
+
+.evidence-child-table th {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 800;
+}
+
+.evidence-child-table td span {
+    color: #94a3b8;
+    font-size: 10px;
+}
+
 .evidence-section pre {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
