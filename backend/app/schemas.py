@@ -182,3 +182,37 @@ class RunComparisonRequest(BaseModel):
 class ComparisonResponse(BaseModel):
     package_id: str
     reports: list[ReviewReport]
+
+
+class UploadedTextFile(BaseModel):
+    file_name: str
+    file_type: str = "txt"
+    text: str = ""
+
+
+class CreateUploadPackageRequest(BaseModel):
+    package_id: str | None = None
+    scenario_id: str = "SCN-GENERIC-ONLINE-BANKING"
+    company: str
+    bank: str = "Demo Bank"
+    platform: str = "Corporate Online Banking"
+    activity: str = "open"
+    account_number: str
+    user_name: str
+    user_role: str = "Payment User"
+    identity_doc_type: str = "Passport"
+    identity_doc_no: str
+    permissions: list[str] = Field(default_factory=lambda: ["query", "payment"])
+    media: list[str] = Field(default_factory=lambda: ["Token"])
+    single_limit: float | None = 500000
+    daily_limit: float | None = None
+    submitted_files: list[UploadedTextFile] = Field(default_factory=list)
+    identity_files: list[UploadedTextFile] = Field(default_factory=list)
+    template_file: UploadedTextFile | None = None
+
+
+class CreateUploadPackageResponse(BaseModel):
+    package_id: str
+    package: MaterialPackage
+    template_version_id: str
+    notes: list[str] = Field(default_factory=list)

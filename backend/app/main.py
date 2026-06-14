@@ -1,102 +1,38 @@
+from uuid import uuid4
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
 from backend.app.core.enums import StrategyName
 from backend.app.data_store import store
-from backend.app.schemas import ComparisonResponse, RunComparisonRequest, RunPreauditRequest
+from backend.app.frontend import FRONTEND_HTML
+from backend.app.schemas import (
+    ComparisonResponse,
+    CreateUploadPackageRequest,
+    CreateUploadPackageResponse,
+    EFlow,
+    EFlowUser,
+    ExpectedContent,
+    MaterialPackage,
+    RunComparisonRequest,
+    RunPreauditRequest,
+    SubmittedDocument,
+    TemplatePlus,
+    TemplateVersion,
+    UploadedTextFile,
+)
 from backend.app.services.strategy_runner_service import StrategyRunnerService
 
 
-app = FastAPI(title="Bank Document Preaudit POC", version="0.1.0")
+DEFAULT_TEMPLATE_VERSION_ID = "TPLV-CORP-ONLINE-BANKING-V1"
+
+app = FastAPI(title="Bank Document Preaudit POC", version="0.2.0")
 runner = StrategyRunnerService()
 
 
 @app.get("/", response_class=HTMLResponse)
 def demo_page() -> str:
-    return """
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>银行文档预审 POC</title>
-  <style>
-    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #172033; }
-    header { padding: 28px 36px; background: #10243f; color: white; }
-    main { padding: 24px 36px; display: grid; gap: 18px; grid-template-columns: 360px 1fr; }
-    section { background: white; border: 1px solid #d9e0ea; border-radius: 8px; padding: 18px; }
-    button { width: 100%; margin: 8px 0; padding: 11px 12px; border: 0; border-radius: 6px; background: #2463eb; color: white; cursor: pointer; font-size: 14px; }
-    button.secondary { background: #2f4858; }
-    pre { white-space: pre-wrap; word-break: break-word; background: #0b1020; color: #d8e2ff; padding: 16px; border-radius: 6px; min-height: 420px; overflow: auto; }
-    .muted { color: #607086; line-height: 1.6; }
-    @media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 16px; } header { padding: 22px 16px; } }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>银行协议/申请文档预审 POC</h1>
-    <p>稳定业务底座 + 可插拔策略 + 统一报告 + 模型接口预留</p>
-  </header>
-  <main>
-    <section>
-      <h2>样例材料包</h2>
-      <p class="muted">案例矩阵来自旧方案 test_data，已转成新方案材料包。可按场景演示通过、硬失败、风险提示和多策略对比。</p>
-      <select id="caseSelect" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:6px;margin:8px 0;"></select>
-      <button onclick="loadPackage()">查看材料包</button>
-      <button onclick="runStrategy('block_rule_check')">运行 Demo1 区块检查</button>
-      <button onclick="runStrategy('template_plus_diff')">运行 Demo2 模板 Plus 差异</button>
-      <button class="secondary" onclick="runComparison()">多策略对比</button>
-      <button class="secondary" onclick="runSuite()">运行全量 Demo Suite</button>
-      <p class="muted">完整接口可在 <a href="/docs">/docs</a> 中试用。</p>
-    </section>
-    <section>
-      <h2>输出</h2>
-      <pre id="output">点击左侧按钮开始演示。</pre>
-    </section>
-  </main>
-  <script>
-    const out = document.getElementById('output');
-    async function show(url, options) {
-      out.textContent = '运行中...';
-      const res = await fetch(url, options);
-      out.textContent = JSON.stringify(await res.json(), null, 2);
-    }
-    let selectedPackage = 'PKG-DEMO-001';
-    async function initCases() {
-      const res = await fetch('/api/demo-cases');
-      const cases = await res.json();
-      const select = document.getElementById('caseSelect');
-      select.innerHTML = cases.map(item => `<option value="${item.package_id}">${item.package_id}｜${item.title}</option>`).join('');
-      select.value = selectedPackage;
-      select.addEventListener('change', () => { selectedPackage = select.value; });
-    }
-    function loadPackage() { show(`/api/packages/${selectedPackage}`); }
-    function runStrategy(strategy) {
-      show(`/api/packages/${selectedPackage}/run-preaudit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategy, options: { use_mock_llm: true } })
-      });
-    }
-    function runComparison() {
-      show(`/api/packages/${selectedPackage}/run-comparison`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategies: ['block_rule_check', 'template_plus_diff', 'full_agent_review'] })
-      });
-    }
-    function runSuite() {
-      show('/api/demo-suite/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategies: ['block_rule_check', 'template_plus_diff'], options: { use_mock_llm: true } })
-      });
-    }
-    initCases();
-  </script>
-</body>
-</html>
-"""
+    return FRONTEND_HTML
 
 
 @app.get("/api/health")
@@ -153,24 +89,67 @@ def list_strategies():
         {
             "strategy": StrategyName.BLOCK_RULE_CHECK,
             "demo": "Demo1",
-            "description": "区块级填写规范检查",
+            "description": "区块级字段、权限、介质、限额等确定性规则检查。",
         },
         {
             "strategy": StrategyName.TEMPLATE_PLUS_DIFF,
             "demo": "Demo2",
-            "description": "模板 Plus 预填基准差异检查",
+            "description": "把提交材料与 Template Plus 基准做差异识别，并交给模型解释高风险变化。",
         },
         {
             "strategy": StrategyName.FULL_AGENT_REVIEW,
             "demo": "Demo3",
-            "description": "受约束的全文 Agent 风险提示",
+            "description": "受约束的全文 Agent 复核，用于兜底发现非结构化风险。",
         },
         {
             "strategy": StrategyName.HYBRID_REVIEW,
             "demo": "Future",
-            "description": "混合策略预留",
+            "description": "混合策略预留入口。",
         },
     ]
+
+
+@app.post("/api/upload-package", response_model=CreateUploadPackageResponse)
+def create_upload_package(request: CreateUploadPackageRequest):
+    if request.scenario_id not in store.scenarios:
+        raise HTTPException(status_code=400, detail="Unknown scenario_id")
+
+    package_id = request.package_id or f"PKG-UPLOAD-{uuid4().hex[:8].upper()}"
+    if package_id in store.packages:
+        raise HTTPException(status_code=409, detail="Package already exists")
+
+    template_version_id, notes = _prepare_template_version(package_id, request)
+    eflow = _build_eflow(package_id, request)
+    submitted_documents = _build_submitted_documents(package_id, template_version_id, request)
+    identity_documents = [
+        SubmittedDocument(
+            document_id=f"ID-{package_id}-{index + 1}",
+            package_id=package_id,
+            file_name=file.file_name,
+            file_type=file.file_type,
+            matched_template_version_id=template_version_id,
+            match_confidence=0.3,
+            match_status="suspected",
+            text=file.text,
+        )
+        for index, file in enumerate(request.identity_files)
+    ]
+
+    package = MaterialPackage(
+        package_id=package_id,
+        scenario_id=request.scenario_id,
+        eflow=eflow,
+        submitted_documents=submitted_documents,
+        identity_documents=identity_documents,
+        expected_template_set=[template_version_id],
+    )
+    store.packages[package_id] = package
+    return CreateUploadPackageResponse(
+        package_id=package_id,
+        package=package,
+        template_version_id=template_version_id,
+        notes=notes,
+    )
 
 
 @app.post("/api/packages/{package_id}/run-preaudit")
@@ -220,3 +199,126 @@ def run_demo_suite(request: RunComparisonRequest):
             }
         )
     return {"case_count": len(rows), "strategies": request.strategies, "rows": rows}
+
+
+def _prepare_template_version(package_id: str, request: CreateUploadPackageRequest) -> tuple[str, list[str]]:
+    notes: list[str] = []
+    if request.template_file is None or not request.template_file.text.strip():
+        notes.append("未上传模板基准，使用系统内置 Template Plus。")
+        return DEFAULT_TEMPLATE_VERSION_ID, notes
+
+    template_version_id = f"TPLV-UPLOAD-{package_id}"
+    store.template_versions[template_version_id] = TemplateVersion(
+        template_version_id=template_version_id,
+        template_id="TPL-CORP-ONLINE-BANKING",
+        version=f"upload-{package_id}",
+        fingerprint=f"manual-upload-{uuid4().hex[:10]}",
+        published_by="demo_user",
+        published_at="2026-06-15",
+    )
+    store.template_blocks[template_version_id] = [
+        block.model_copy(update={"template_version_id": template_version_id})
+        for block in store.template_blocks[DEFAULT_TEMPLATE_VERSION_ID]
+    ]
+    store.template_plus[f"TPLP-UPLOAD-{package_id}"] = TemplatePlus(
+        template_plus_id=f"TPLP-UPLOAD-{package_id}",
+        template_version_id=template_version_id,
+        plus_version="upload",
+        description=f"用户上传模板基准：{request.template_file.file_name}",
+        fixed_content_policy="上传模板作为本次 Demo 的临时基准；提交材料中新增、删除或修改内容均进入差异识别。",
+        variable_slots=[
+            "company",
+            "account_number",
+            "operator_name",
+            "identity_doc_type",
+            "identity_doc_no",
+            "single_limit",
+        ],
+        baseline_text=request.template_file.text,
+        expected_contents=[
+            ExpectedContent(
+                expected_content_id=f"EXP-UPLOAD-{package_id}",
+                content_type="fixed",
+                business_meaning="上传模板基准",
+                expected_value=request.template_file.text[:200],
+                source="uploaded_template",
+                check_policy="compare_against_uploaded_baseline",
+            )
+        ],
+    )
+    notes.append("已为上传模板生成临时 Template Plus 基准。")
+    return template_version_id, notes
+
+
+def _build_eflow(package_id: str, request: CreateUploadPackageRequest) -> EFlow:
+    user = EFlowUser(
+        name=request.user_name,
+        role=request.user_role,
+        permissions=request.permissions,
+        media=request.media,
+        identity_doc_no=request.identity_doc_no,
+        identity_doc_type=request.identity_doc_type,
+        account_number=request.account_number,
+        single_limit=request.single_limit,
+        daily_limit=request.daily_limit,
+    )
+    return EFlow(
+        eflow_id=f"EF-{package_id}",
+        applicant=request.user_name,
+        company=request.company,
+        bank=request.bank,
+        platform=request.platform,
+        account_name=request.company,
+        account_number=request.account_number,
+        users=[user],
+        change_items=["activity", "user", "permission", "media", "account", "identity"],
+        activity=request.activity,
+    )
+
+
+def _build_submitted_documents(
+    package_id: str,
+    template_version_id: str,
+    request: CreateUploadPackageRequest,
+) -> list[SubmittedDocument]:
+    files = request.submitted_files or []
+    if not files:
+        files = [
+            _generated_application_file(request),
+        ]
+    return [
+        SubmittedDocument(
+            document_id=f"DOC-{package_id}-{index + 1}",
+            package_id=package_id,
+            file_name=file.file_name,
+            file_type=file.file_type,
+            matched_template_version_id=template_version_id,
+            match_confidence=0.86 if file.text.strip() else 0.2,
+            match_status="matched" if file.text.strip() else "suspected",
+            text=file.text,
+        )
+        for index, file in enumerate(files)
+    ]
+
+
+def _generated_application_file(request: CreateUploadPackageRequest) -> UploadedTextFile:
+    text = "\n".join(
+        [
+            f"Activity: {request.activity}",
+            "User Count: 1",
+            f"Company Name: {request.company}",
+            f"Account Number: {request.account_number}",
+            f"Operator Name: {request.user_name}",
+            f"Identity Doc Type: {request.identity_doc_type}",
+            f"Identity Doc No: {request.identity_doc_no}",
+            f"Permissions: {', '.join(request.permissions)}",
+            f"Media: {', '.join(request.media)}",
+            f"Single Limit: {int(request.single_limit or 0)}",
+            "Declaration: Standard corporate online banking application terms remain unchanged.",
+        ]
+    )
+    return UploadedTextFile(
+        file_name="generated-application.txt",
+        file_type="txt",
+        text=text,
+    )

@@ -38,3 +38,78 @@ def test_demo_suite_with_mock_llm():
     data = response.json()
     assert data["case_count"] >= 8
     assert all(row["reports"] for row in data["rows"])
+
+
+def test_create_upload_package_and_run_comparison():
+    upload_response = client.post(
+        "/api/upload-package",
+        json={
+            "company": "Demo Upload Company Limited",
+            "bank": "Demo Bank",
+            "platform": "Corporate Online Banking",
+            "activity": "open",
+            "account_number": "9988776655",
+            "user_name": "Upload Tester",
+            "identity_doc_type": "Passport",
+            "identity_doc_no": "P-UPLOAD-001",
+            "permissions": ["query", "payment"],
+            "media": ["Token"],
+            "single_limit": 500000,
+            "submitted_files": [
+                {
+                    "file_name": "uploaded-application.txt",
+                    "file_type": "txt",
+                    "text": "\n".join(
+                        [
+                            "Activity: open",
+                            "User Count: 1",
+                            "Company Name: Demo Upload Company Limited",
+                            "Account Number: 9988776655",
+                            "Operator Name: Upload Tester",
+                            "Identity Doc Type: Passport",
+                            "Identity Doc No: P-UPLOAD-001",
+                            "Permissions: query, payment, admin approval",
+                            "Media: Token",
+                            "Single Limit: 500000",
+                            "Declaration: Standard corporate online banking application terms remain unchanged.",
+                        ]
+                    ),
+                }
+            ],
+            "template_file": {
+                "file_name": "uploaded-template.txt",
+                "file_type": "txt",
+                "text": "\n".join(
+                    [
+                        "Activity: open",
+                        "User Count: 1",
+                        "Company Name: Demo Upload Company Limited",
+                        "Account Number: 9988776655",
+                        "Operator Name: Upload Tester",
+                        "Identity Doc Type: Passport",
+                        "Identity Doc No: P-UPLOAD-001",
+                        "Permissions: query, payment",
+                        "Media: Token",
+                        "Single Limit: 500000",
+                        "Declaration: Standard corporate online banking application terms remain unchanged.",
+                    ]
+                ),
+            },
+        },
+    )
+    assert upload_response.status_code == 200
+    created = upload_response.json()
+    assert created["package_id"].startswith("PKG-UPLOAD-")
+    assert created["template_version_id"].startswith("TPLV-UPLOAD-")
+
+    comparison_response = client.post(
+        f"/api/packages/{created['package_id']}/run-comparison",
+        json={
+            "strategies": ["block_rule_check", "template_plus_diff", "full_agent_review"],
+            "options": {"use_mock_llm": True},
+        },
+    )
+    assert comparison_response.status_code == 200
+    data = comparison_response.json()
+    assert len(data["reports"]) == 3
+    assert sum(report["metrics"]["detected_issues_count"] for report in data["reports"]) >= 1
