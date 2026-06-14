@@ -21,6 +21,11 @@ class EFlowUser(BaseModel):
     permissions: list[str]
     media: list[str]
     identity_doc_no: str
+    identity_doc_type: str = "Passport"
+    identity_expiry_date: str | None = None
+    account_number: str | None = None
+    single_limit: float | None = None
+    daily_limit: float | None = None
 
 
 class EFlow(BaseModel):
@@ -33,6 +38,7 @@ class EFlow(BaseModel):
     account_number: str
     users: list[EFlowUser]
     change_items: list[str]
+    activity: str = "open"
 
 
 class Template(BaseModel):

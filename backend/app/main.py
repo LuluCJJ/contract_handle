@@ -40,11 +40,13 @@ def demo_page() -> str:
   <main>
     <section>
       <h2>样例材料包</h2>
-      <p class="muted">Nigeria / UBA / User Permission Change。内置了电子流、模板区块、模板 Plus 和一份带风险差异的提交文档。</p>
+      <p class="muted">案例矩阵来自旧方案 test_data，已转成新方案材料包。可按场景演示通过、硬失败、风险提示和多策略对比。</p>
+      <select id="caseSelect" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:6px;margin:8px 0;"></select>
       <button onclick="loadPackage()">查看材料包</button>
       <button onclick="runStrategy('block_rule_check')">运行 Demo1 区块检查</button>
       <button onclick="runStrategy('template_plus_diff')">运行 Demo2 模板 Plus 差异</button>
       <button class="secondary" onclick="runComparison()">多策略对比</button>
+      <button class="secondary" onclick="runSuite()">运行全量 Demo Suite</button>
       <p class="muted">完整接口可在 <a href="/docs">/docs</a> 中试用。</p>
     </section>
     <section>
@@ -59,21 +61,38 @@ def demo_page() -> str:
       const res = await fetch(url, options);
       out.textContent = JSON.stringify(await res.json(), null, 2);
     }
-    function loadPackage() { show('/api/packages/PKG-DEMO-001'); }
+    let selectedPackage = 'PKG-DEMO-001';
+    async function initCases() {
+      const res = await fetch('/api/demo-cases');
+      const cases = await res.json();
+      const select = document.getElementById('caseSelect');
+      select.innerHTML = cases.map(item => `<option value="${item.package_id}">${item.package_id}｜${item.title}</option>`).join('');
+      select.value = selectedPackage;
+      select.addEventListener('change', () => { selectedPackage = select.value; });
+    }
+    function loadPackage() { show(`/api/packages/${selectedPackage}`); }
     function runStrategy(strategy) {
-      show('/api/packages/PKG-DEMO-001/run-preaudit', {
+      show(`/api/packages/${selectedPackage}/run-preaudit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ strategy, options: { use_mock_llm: true } })
       });
     }
     function runComparison() {
-      show('/api/packages/PKG-DEMO-001/run-comparison', {
+      show(`/api/packages/${selectedPackage}/run-comparison`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ strategies: ['block_rule_check', 'template_plus_diff', 'full_agent_review'] })
       });
     }
+    function runSuite() {
+      show('/api/demo-suite/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategies: ['block_rule_check', 'template_plus_diff'], options: { use_mock_llm: true } })
+      });
+    }
+    initCases();
   </script>
 </body>
 </html>
@@ -103,6 +122,21 @@ def list_templates():
 @app.get("/api/packages")
 def list_packages():
     return list(store.packages.values())
+
+
+@app.get("/api/demo-cases")
+def list_demo_cases():
+    return [
+        {
+            "package_id": case.package_id,
+            "source_case": case.source_case,
+            "title": case.title,
+            "expected_focus": case.expected_focus,
+            "expected_risk": case.expected_risk,
+            "demo_story": case.demo_story,
+        }
+        for case in store.demo_cases.values()
+    ]
 
 
 @app.get("/api/packages/{package_id}")
@@ -154,3 +188,35 @@ def run_comparison(package_id: str, request: RunComparisonRequest):
     use_mock = bool(request.options.get("use_mock_llm", False))
     reports = runner.run_many(package_id, request.strategies, use_mock_llm=use_mock)
     return ComparisonResponse(package_id=package_id, reports=reports)
+
+
+@app.post("/api/demo-suite/run")
+def run_demo_suite(request: RunComparisonRequest):
+    use_mock = bool(request.options.get("use_mock_llm", True))
+    rows = []
+    for case in store.demo_cases.values():
+        reports = runner.run_many(case.package_id, request.strategies, use_mock_llm=use_mock)
+        rows.append(
+            {
+                "case": {
+                    "package_id": case.package_id,
+                    "source_case": case.source_case,
+                    "title": case.title,
+                    "expected_focus": case.expected_focus,
+                    "expected_risk": case.expected_risk,
+                },
+                "reports": [
+                    {
+                        "strategy": report.strategy,
+                        "summary": report.summary,
+                        "result_count": len(report.results),
+                        "issue_count": report.metrics.detected_issues_count,
+                        "llm_calls": report.metrics.llm_calls,
+                        "risk_levels": [result.risk_level for result in report.results],
+                        "manual_confirm_count": sum(1 for result in report.results if result.manual_confirm_required),
+                    }
+                    for report in reports
+                ],
+            }
+        )
+    return {"case_count": len(rows), "strategies": request.strategies, "rows": rows}

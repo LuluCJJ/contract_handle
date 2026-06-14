@@ -19,3 +19,23 @@ def line_value(text: str, anchor: str) -> str:
             return parts[1].strip() if len(parts) == 2 else line.strip()
     return ""
 
+
+def normalize_activity(value: str) -> str:
+    text = normalize_text(value)
+    if any(word in text for word in ["cancel", "cancellation", "注销", "撤销", "取消", "terminate"]):
+        return "cancel"
+    if any(word in text for word in ["modify", "amendment", "change", "变更", "修改"]):
+        return "change"
+    if any(word in text for word in ["open", "new", "apply", "开通", "新增", "申请"]):
+        return "open"
+    return text
+
+
+def parse_amount(value: str) -> float:
+    cleaned = re.sub(r"[^0-9.]", "", value)
+    if not cleaned:
+        return 0.0
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0

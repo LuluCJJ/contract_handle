@@ -1,5 +1,5 @@
 from backend.app.core.enums import CheckStatus, RiskLevel, StrategyName
-from backend.app.rules.normalization import contains_all, line_value, normalize_text
+from backend.app.rules.normalization import contains_all, line_value, normalize_activity, normalize_text, parse_amount
 from backend.app.schemas import CheckResult, Evidence, MaterialPackage, TemplateBlock
 
 
@@ -23,6 +23,14 @@ class RuleEngine:
         elif block.check_type == "contains_all":
             values = expected if isinstance(expected, list) else [str(expected)]
             passed = contains_all(extracted, values)
+        elif block.check_type == "activity_match":
+            passed = normalize_activity(str(expected)) == normalize_activity(extracted)
+        elif block.check_type == "count_match":
+            passed = str(expected) == normalize_text(extracted)
+        elif block.check_type == "max_limit_review":
+            extracted_amount = parse_amount(extracted)
+            expected_amount = float(expected or 0)
+            passed = extracted_amount == expected_amount and extracted_amount <= 5_000_000
         else:
             passed = bool(extracted.strip())
 
@@ -31,6 +39,10 @@ class RuleEngine:
             risk = RiskLevel.MEDIUM
             manual_confirm = True
             action = "请核对电子流与申请材料填写是否一致"
+            if block.check_type == "max_limit_review":
+                status = CheckStatus.WARNING
+                risk = RiskLevel.HIGH
+                action = "请审核人确认高限额是否有额外授权依据"
 
         return CheckResult(
             result_id=f"CHK-{block.block_id}",
@@ -53,11 +65,18 @@ class RuleEngine:
     def _resolve_expected(self, package: MaterialPackage, path: str | None):
         if not path:
             return ""
-        if path == "users.0.name":
-            return package.eflow.users[0].name
-        if path == "users.0.permissions":
-            return package.eflow.users[0].permissions
-        if path == "users.0.media":
-            return package.eflow.users[0].media
+        if path == "users_count":
+            return len(package.eflow.users)
+        if path == "activity":
+            return package.eflow.activity
+        if path == "account_number":
+            return package.eflow.account_number
+        if path.startswith("users."):
+            parts = path.split(".")
+            if len(parts) < 3:
+                return ""
+            index = int(parts[1])
+            field = parts[2]
+            user = package.eflow.users[index]
+            return getattr(user, field, "")
         return ""
-

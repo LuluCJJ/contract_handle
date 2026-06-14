@@ -17,7 +17,7 @@ class DiffClassifier:
             eflow.platform,
         ]
         for user in eflow.users:
-            eflow_values.extend([user.name, user.role, user.identity_doc_no])
+            eflow_values.extend([user.name, user.role, user.identity_doc_no, user.identity_doc_type])
             eflow_values.extend(user.permissions)
             eflow_values.extend(user.media)
 
@@ -33,11 +33,26 @@ class DiffClassifier:
         if diff.diff_type in {"deleted", "modified"} and any(normalize_text(value) in baseline for value in fixed_values):
             return DiffClassification.TEMPLATE_DEVIATION
 
-        risk_terms = ["admin approval", "approve transactions", "above standard workflow", "extra user", "threshold"]
+        risk_terms = [
+            "admin approval",
+            "approve transactions",
+            "above standard workflow",
+            "extra user",
+            "threshold",
+            "cancel",
+            "cancellation",
+            "expired",
+            "high limit",
+            "sensitive industry",
+            "passport instead of id card",
+            "账号不一致",
+            "证件不一致",
+            "姓名不一致",
+            "注销",
+        ]
         if any(term in submitted for term in risk_terms):
             return DiffClassification.POTENTIAL_RISK
 
         if diff.diff_type == "added":
             return DiffClassification.UNKNOWN
         return DiffClassification.ACCEPTABLE_FILL
-
