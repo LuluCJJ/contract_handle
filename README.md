@@ -18,7 +18,10 @@
 
 ```powershell
 cd D:\AI\project\contract_verify
-python -m uvicorn backend.app.main:app --reload --port 8001
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --port 8001
 ```
 
 打开：
@@ -49,14 +52,14 @@ python -m uvicorn backend.app.main:app --reload --port 8001
 ## 本地验证
 
 ```powershell
-python -m compileall backend scripts tests
-python scripts\run_demo_regression.py
+.\.venv\Scripts\python.exe -m compileall backend scripts tests
+.\.venv\Scripts\python.exe scripts\run_demo_regression.py
 ```
 
-如果安装了 pytest，也可以运行：
+也可以运行完整测试：
 
 ```powershell
-pytest
+.\.venv\Scripts\python.exe -m pytest tests
 ```
 
 ## 模型接口
