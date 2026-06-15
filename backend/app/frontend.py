@@ -85,6 +85,29 @@ FRONTEND_HTML = r"""
       gap: 8px;
       flex-wrap: wrap;
     }
+    .stage-nav {
+      margin-bottom: 10px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .stage-nav button {
+      min-height: 46px;
+      color: var(--ink);
+      background: #e2e8f0;
+      text-align: left;
+    }
+    .stage-nav button.active {
+      color: #fff;
+      background: var(--primary);
+    }
+    .stage-nav span {
+      display: block;
+      margin-top: 3px;
+      font-size: 11px;
+      font-weight: 500;
+      opacity: .78;
+    }
     .nav button {
       color: var(--ink);
       background: #e2e8f0;
@@ -315,7 +338,7 @@ FRONTEND_HTML = r"""
     }
     .config-row {
       display: grid;
-      grid-template-columns: 160px 1fr 190px 120px 130px;
+      grid-template-columns: 120px 1fr 160px 118px 95px 130px;
       gap: 8px;
       align-items: start;
       padding: 10px;
@@ -323,6 +346,38 @@ FRONTEND_HTML = r"""
       background: #fff;
     }
     .config-row.header { background: #f8fafc; color: #475569; font-size: 12px; font-weight: 800; }
+    .template-config-layout {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr) 560px;
+      gap: 12px;
+      align-items: start;
+    }
+    .template-preview {
+      height: calc(100vh - 250px);
+      min-height: 520px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+    }
+    .template-line {
+      display: grid;
+      grid-template-columns: 64px minmax(0, 1fr);
+      gap: 10px;
+      min-height: 30px;
+      padding: 6px 8px;
+      border-bottom: 1px solid #eef2f7;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .template-line:hover { background: #f8fafc; }
+    .template-line.focused {
+      background: #eff6ff;
+      outline: 2px solid var(--focus);
+      outline-offset: -2px;
+    }
+    .template-line .line-no { color: var(--muted); font-size: 12px; }
     .upload-layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 12px; }
     .route-card {
       border: 1px solid var(--line);
@@ -373,6 +428,8 @@ FRONTEND_HTML = r"""
       .field-grid { grid-template-columns: 1fr; }
       .field-cell { border-right: 0; }
       .config-row { grid-template-columns: 1fr; }
+      .template-config-layout { grid-template-columns: 1fr; }
+      .stage-nav { grid-template-columns: 1fr; }
       .summary-strip { grid-template-columns: 1fr; }
     }
   </style>
@@ -399,15 +456,20 @@ FRONTEND_HTML = r"""
   </header>
 
   <main>
+    <nav class="stage-nav" aria-label="用户旅程">
+      <button class="active" type="button" data-stage="setup" onclick="showStage('setup')">配置环节<span>模板库、Template Plus、填写规范、原文定位</span></button>
+      <button type="button" data-stage="execution" onclick="showStage('execution')">上传实施触发<span>材料准备、上传、匹配解析、路线执行</span></button>
+      <button type="button" data-stage="reporting" onclick="showStage('reporting')">最终结果和报告<span>统一报告、多路径对比、人工确认</span></button>
+    </nav>
     <nav class="nav" aria-label="页面导航">
-      <button class="active" type="button" data-screen="config">配置中心</button>
-      <button type="button" data-screen="review">材料准备</button>
-      <button type="button" data-screen="match">模板匹配与解析</button>
-      <button type="button" data-screen="diff">路线 A：模板 Plus</button>
-      <button type="button" data-screen="fields">路线 B：填写规范</button>
-      <button type="button" data-screen="overview">统一预审报告</button>
-      <button type="button" data-screen="compare">多路径对比</button>
-      <button type="button" data-screen="upload">上传材料</button>
+      <button class="active" type="button" data-stage="setup" data-screen="config">模板配置中心</button>
+      <button type="button" data-stage="execution" data-screen="review">材料准备</button>
+      <button type="button" data-stage="execution" data-screen="upload">上传材料</button>
+      <button type="button" data-stage="execution" data-screen="match">模板匹配与解析</button>
+      <button type="button" data-stage="execution" data-screen="diff">路线 A：模板 Plus</button>
+      <button type="button" data-stage="execution" data-screen="fields">路线 B：填写规范</button>
+      <button type="button" data-stage="reporting" data-screen="overview">统一预审报告</button>
+      <button type="button" data-stage="reporting" data-screen="compare">多路径对比</button>
     </nav>
 
     <section id="overview" class="screen">
@@ -563,35 +625,37 @@ FRONTEND_HTML = r"""
     <section id="config" class="screen active">
       <div class="panel">
           <div class="panel-title">
-          <h2>配置中心</h2>
+          <h2>模板配置中心</h2>
           <div class="top-actions">
             <select id="templateSelect" onchange="renderConfig()"></select>
+            <button class="neutral" type="button" onclick="addConfigBlock()">新增区块</button>
             <button type="button" onclick="savePrototypeConfig()">保存当前配置</button>
           </div>
         </div>
-        <div class="panel-body stack">
-          <div class="grid-3">
-            <div class="route-card">
-              <strong>场景树</strong>
-              <span class="muted">国家 / 银行 / 渠道 / 流程活动 / 活动细类</span>
-              <span class="badge">Multi-country / Corporate Online Banking</span>
-            </div>
-            <div class="route-card">
-              <strong>模板与知识资产</strong>
-              <span class="muted">主申请表、授权材料、身份证明材料及其知识模式。</span>
-              <span><span class="badge">模板 Plus</span> <span class="badge">填写规范</span></span>
-            </div>
-            <div class="route-card">
-              <strong>默认预审路线</strong>
-              <span class="muted">右上角可一键切换当前 Demo 按方案 A、方案 B 或 A/B 对比运行。</span>
-              <span id="routeModeBadge"><span class="badge low">方案 A：有模板 Plus</span></span>
-            </div>
+        <div class="panel-body">
+          <div class="template-config-layout">
+            <aside class="stack">
+              <div class="route-card">
+                <strong>模板资产</strong>
+                <span class="muted">围绕模板版本配置区块、锚点、Template Plus 和填写规范。</span>
+                <span id="routeModeBadge"><span class="badge low">方案 A：有模板 Plus</span></span>
+              </div>
+              <div id="templateAssetList" class="material-list"></div>
+            </aside>
+            <section>
+              <div class="doc-toolbar">
+                <p class="muted">点击模板原文行，再在右侧配置区块；点击区块的“定位原文”可回到对应锚点。</p>
+                <span class="badge" id="selectedAnchorLabel">未选择原文行</span>
+              </div>
+              <div id="configTemplatePreview" class="template-preview"></div>
+            </section>
+            <section>
+              <div class="config-row header">
+                <div>操作</div><div>区块/说明</div><div>锚点原文</div><div>eFlow 路径</div><div>AI</div><div>检查类型</div>
+              </div>
+              <div id="configRows"></div>
+            </section>
           </div>
-          <p class="muted">这里展示未来业务 COE 可配置的模板区块、eFlow 路径、检查类型和是否需要 AI。当前版本保存为前端原型态，不写入数据库。</p>
-          <div class="config-row header">
-            <div>区块名称</div><div>业务含义/填报说明</div><div>eFlow 路径</div><div>检查类型</div><div>AI 复核</div>
-          </div>
-          <div id="configRows"></div>
         </div>
       </div>
     </section>
@@ -680,7 +744,10 @@ Declaration: Standard corporate online banking application terms remain unchange
       selectedDocId: null,
       selectedRiskId: null,
       templates: null,
-      prototypeConfig: {}
+      prototypeConfig: {},
+      deletedConfigKeys: new Set(),
+      selectedTemplateAnchor: "",
+      currentStage: "setup"
     };
 
     const qs = (id) => document.getElementById(id);
@@ -702,8 +769,25 @@ Declaration: Standard corporate online banking application terms remain unchange
     });
 
     function showScreen(id) {
+      const navButton = document.querySelector(`.nav button[data-screen="${id}"]`);
+      if (navButton?.dataset.stage) {
+        state.currentStage = navButton.dataset.stage;
+      }
+      renderStageNav();
       document.querySelectorAll(".nav button").forEach(item => item.classList.toggle("active", item.dataset.screen === id));
       document.querySelectorAll(".screen").forEach(item => item.classList.toggle("active", item.id === id));
+    }
+
+    function showStage(stage) {
+      state.currentStage = stage;
+      renderStageNav();
+      const first = document.querySelector(`.nav button[data-stage="${stage}"]`);
+      if (first) showScreen(first.dataset.screen);
+    }
+
+    function renderStageNav() {
+      document.querySelectorAll(".stage-nav button").forEach(item => item.classList.toggle("active", item.dataset.stage === state.currentStage));
+      document.querySelectorAll(".nav button").forEach(item => item.classList.toggle("hidden", item.dataset.stage !== state.currentStage));
     }
 
     function toast(message, isError = false) {
@@ -753,6 +837,7 @@ Declaration: Standard corporate online banking application terms remain unchange
       state.cases = await api("/api/demo-cases");
       await Promise.all([loadTemplates(), runSuite(false)]);
       await selectCase(state.selectedPackageId, false);
+      renderStageNav();
       renderAll();
     }
 
@@ -1199,23 +1284,129 @@ Declaration: Standard corporate online banking application terms remain unchange
             : `<span class="badge">当前：A/B 对比</span>`;
       }
       const templateVersionId = qs("templateSelect").value || state.templates.template_versions?.[0]?.template_version_id;
-      const blocks = state.templates.template_blocks?.[templateVersionId] || [];
-      qs("configRows").innerHTML = blocks.map((block, index) => {
-        const key = `${templateVersionId}-${block.block_id}`;
-        const saved = state.prototypeConfig[key] || block;
+      const templateVersion = state.templates.template_versions?.find(item => item.template_version_id === templateVersionId);
+      const templatePlus = state.templates.template_plus?.find(item => item.template_version_id === templateVersionId);
+      qs("templateAssetList").innerHTML = `
+        <div class="material-item active">
+          <strong>${templateVersion?.template_version_id || templateVersionId}</strong>
+          <div class="tiny">模板版本：${templateVersion?.version || "-"}</div>
+          <div style="margin-top:6px">${templatePlus ? badge("Template Plus") : badge("填写规范")}</div>
+        </div>
+        <div class="material-item">
+          <strong>固定内容与变量槽</strong>
+          <div class="tiny">${templatePlus ? templatePlus.variable_slots.join(", ") : "未配置 Template Plus 变量槽"}</div>
+        </div>
+      `;
+      renderConfigTemplatePreview(templateVersionId);
+      renderConfigRows(templateVersionId);
+    }
+
+    function renderConfigTemplatePreview(templateVersionId) {
+      const text = templateBaselineText(templateVersionId);
+      const lines = text.split(/\r?\n/).filter(line => line.trim());
+      qs("configTemplatePreview").innerHTML = lines.map((line, index) => `
+        <div id="tpl-line-${index}" class="template-line ${line === state.selectedTemplateAnchor ? "focused" : ""}" onclick="selectTemplateAnchor(${index})">
+          <div class="line-no">L${index + 1}</div>
+          <div>${escapeHtml(line)}</div>
+        </div>
+      `).join("") || `<p class="muted">当前模板没有可展示的基准原文。</p>`;
+      qs("selectedAnchorLabel").textContent = state.selectedTemplateAnchor ? `已选择：${state.selectedTemplateAnchor}` : "未选择原文行";
+    }
+
+    function renderConfigRows(templateVersionId) {
+      const baseBlocks = state.templates.template_blocks?.[templateVersionId] || [];
+      const baseRows = baseBlocks.map(block => {
+        const key = configKey(templateVersionId, block.block_id);
+        return { key, value: { ...block, ...(state.prototypeConfig[key] || {}) } };
+      });
+      const addedRows = Object.entries(state.prototypeConfig)
+        .filter(([key]) => key.startsWith(`${templateVersionId}-NEW-`) && !state.deletedConfigKeys.has(key))
+        .map(([key, value]) => ({ key, value }));
+      const rows = [...baseRows, ...addedRows].filter(row => !state.deletedConfigKeys.has(row.key));
+      qs("configRows").innerHTML = rows.map(row => {
+        const saved = row.value;
         return `<div class="config-row">
-          <input value="${escapeAttr(saved.block_name)}" onchange="setConfig('${key}','block_name',this.value)" />
-          <textarea onchange="setConfig('${key}','fill_instruction',this.value)">${escapeHtml(saved.fill_instruction || saved.business_meaning || "")}</textarea>
-          <input value="${escapeAttr(saved.expected_eflow_path || "")}" onchange="setConfig('${key}','expected_eflow_path',this.value)" />
-          <select onchange="setConfig('${key}','check_type',this.value)">
-            ${["normalized_match","contains_all","activity_match","count_match","max_limit_review"].map(type => `<option value="${type}" ${saved.check_type === type ? "selected" : ""}>${type}</option>`).join("")}
-          </select>
-          <select onchange="setConfig('${key}','ai_required',this.value === 'true')">
+          <div class="stack">
+            <button class="neutral" type="button" onclick="focusTemplateAnchor(${jsString(saved.anchor_text || "")})">定位原文</button>
+            <button class="neutral" type="button" onclick="duplicateConfigBlock('${row.key}')">复制</button>
+            <button class="secondary" type="button" onclick="deleteConfigBlock('${row.key}')">删除</button>
+          </div>
+          <div>
+            <input value="${escapeAttr(saved.block_name || "")}" onchange="setConfig('${row.key}','block_name',this.value)" />
+            <textarea onchange="setConfig('${row.key}','fill_instruction',this.value)">${escapeHtml(saved.fill_instruction || saved.business_meaning || "")}</textarea>
+          </div>
+          <textarea onchange="setConfig('${row.key}','anchor_text',this.value)">${escapeHtml(saved.anchor_text || "")}</textarea>
+          <input value="${escapeAttr(saved.expected_eflow_path || "")}" onchange="setConfig('${row.key}','expected_eflow_path',this.value)" />
+          <select onchange="setConfig('${row.key}','ai_required',this.value === 'true')">
             <option value="false" ${!saved.ai_required ? "selected" : ""}>否</option>
             <option value="true" ${saved.ai_required ? "selected" : ""}>是</option>
           </select>
+          <select onchange="setConfig('${row.key}','check_type',this.value)">
+            ${["normalized_match","contains_all","activity_match","count_match","max_limit_review"].map(type => `<option value="${type}" ${saved.check_type === type ? "selected" : ""}>${type}</option>`).join("")}
+          </select>
         </div>`;
       }).join("") || `<p class="muted">当前模板没有配置区块。</p>`;
+    }
+
+    function templateBaselineText(templateVersionId) {
+      const templatePlus = state.templates.template_plus?.find(item => item.template_version_id === templateVersionId);
+      if (templatePlus?.baseline_text) return templatePlus.baseline_text;
+      const blocks = state.templates.template_blocks?.[templateVersionId] || [];
+      return blocks.map(block => `${block.anchor_text}: <${block.expected_eflow_path || block.block_name}>`).join("\n");
+    }
+
+    function configKey(templateVersionId, blockId) {
+      return `${templateVersionId}-${blockId}`;
+    }
+
+    function selectTemplateAnchor(index) {
+      const line = document.querySelector(`#tpl-line-${index}`);
+      state.selectedTemplateAnchor = line?.innerText.replace(/^L\d+\s*/, "").trim() || "";
+      renderConfig();
+    }
+
+    function focusTemplateAnchor(anchor) {
+      state.selectedTemplateAnchor = anchor;
+      renderConfig();
+      const lines = [...document.querySelectorAll(".template-line")];
+      const target = lines.find(line => line.textContent.includes(anchor));
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+
+    function addConfigBlock() {
+      const templateVersionId = qs("templateSelect").value || state.templates.template_versions?.[0]?.template_version_id;
+      const key = `${templateVersionId}-NEW-${Date.now()}`;
+      state.prototypeConfig[key] = {
+        block_id: key,
+        block_name: "新检查区块",
+        fill_instruction: "请维护该区块的业务含义、填写规范和检查依据。",
+        anchor_text: state.selectedTemplateAnchor || "请先选择模板原文行",
+        expected_eflow_path: "",
+        check_type: "normalized_match",
+        ai_required: false,
+      };
+      renderConfig();
+      toast("已新增区块，请绑定原文锚点和 eFlow 路径。");
+    }
+
+    function duplicateConfigBlock(key) {
+      const source = state.prototypeConfig[key] || findConfigBlockByKey(key);
+      if (!source) return;
+      const templateVersionId = qs("templateSelect").value || state.templates.template_versions?.[0]?.template_version_id;
+      const newKey = `${templateVersionId}-NEW-${Date.now()}`;
+      state.prototypeConfig[newKey] = { ...source, block_id: newKey, block_name: `${source.block_name || "区块"} 副本` };
+      renderConfig();
+    }
+
+    function deleteConfigBlock(key) {
+      state.deletedConfigKeys.add(key);
+      renderConfig();
+    }
+
+    function findConfigBlockByKey(key) {
+      const templateVersionId = qs("templateSelect").value || state.templates.template_versions?.[0]?.template_version_id;
+      const blockId = key.replace(`${templateVersionId}-`, "");
+      return state.templates.template_blocks?.[templateVersionId]?.find(block => block.block_id === blockId);
     }
 
     function setConfig(key, field, value) {
@@ -1296,6 +1487,10 @@ Declaration: Standard corporate online banking application terms remain unchange
 
     function escapeAttr(value) {
       return escapeHtml(value).replaceAll("\n", " ");
+    }
+
+    function jsString(value) {
+      return JSON.stringify(String(value ?? ""));
     }
 
     init().catch(error => toast(error.message, true));
