@@ -288,6 +288,21 @@ FRONTEND_HTML = r"""
     }
     .config-row.header { background: #f8fafc; color: #475569; font-size: 12px; font-weight: 800; }
     .upload-layout { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 12px; }
+    .route-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+    .route-card strong { font-size: 14px; }
+    .prep-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
     .dropzone {
       border: 1px dashed #94a3b8;
       background: #f8fafc;
@@ -344,15 +359,17 @@ FRONTEND_HTML = r"""
 
   <main>
     <nav class="nav" aria-label="页面导航">
-      <button class="active" type="button" data-screen="overview">案例总览</button>
-      <button type="button" data-screen="review">文档审阅</button>
-      <button type="button" data-screen="fields">字段核对</button>
-      <button type="button" data-screen="diff">模板差异</button>
-      <button type="button" data-screen="config">配置中心</button>
+      <button class="active" type="button" data-screen="config">配置中心</button>
+      <button type="button" data-screen="review">材料准备</button>
+      <button type="button" data-screen="match">模板匹配与解析</button>
+      <button type="button" data-screen="diff">路线 A：模板 Plus</button>
+      <button type="button" data-screen="fields">路线 B：填写规范</button>
+      <button type="button" data-screen="overview">统一预审报告</button>
+      <button type="button" data-screen="compare">多路径对比</button>
       <button type="button" data-screen="upload">上传材料</button>
     </nav>
 
-    <section id="overview" class="screen active">
+    <section id="overview" class="screen">
       <div class="summary-strip">
         <div class="metric"><span>全部案例</span><strong id="mTotal">0</strong></div>
         <div class="metric"><span>通过</span><strong id="mPass">0</strong></div>
@@ -362,7 +379,7 @@ FRONTEND_HTML = r"""
       </div>
       <div class="panel">
         <div class="panel-title">
-          <h2>案例总览</h2>
+          <h2>统一预审报告</h2>
           <div class="top-actions">
             <select id="caseFilter" onchange="renderOverview()">
               <option value="all">全部</option>
@@ -383,7 +400,7 @@ FRONTEND_HTML = r"""
                   <th>状态</th>
                   <th>风险</th>
                   <th>关注点</th>
-                  <th>策略命中</th>
+                  <th>报告摘要</th>
                 </tr>
               </thead>
               <tbody id="overviewRows">
@@ -396,9 +413,10 @@ FRONTEND_HTML = r"""
     </section>
 
     <section id="review" class="screen">
+      <div class="prep-grid" id="prepSummary"></div>
       <div class="review-grid">
         <aside class="panel">
-          <div class="panel-title"><h2>材料树</h2></div>
+          <div class="panel-title"><h2>本次应准备文档</h2></div>
           <div class="panel-body stack">
             <div class="metric"><span>当前案例</span><strong id="currentCaseShort">-</strong></div>
             <div id="materialList" class="material-list"></div>
@@ -436,14 +454,41 @@ FRONTEND_HTML = r"""
       </div>
     </section>
 
+    <section id="match" class="screen">
+      <div class="panel">
+        <div class="panel-title">
+          <h2>模板匹配与文档解析</h2>
+          <span class="badge">进入预审前确认</span>
+        </div>
+        <div class="panel-body stack">
+          <p class="muted">这一页说明每份材料为什么匹配当前模板、为什么进入路线 A 或路线 B，以及系统是否已经抽取出可检查内容。</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>上传文档</th>
+                  <th>预期模板</th>
+                  <th>匹配状态</th>
+                  <th>解析状态</th>
+                  <th>默认路线</th>
+                  <th>说明</th>
+                </tr>
+              </thead>
+              <tbody id="matchRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="fields" class="screen">
       <div class="panel">
         <div class="panel-title">
-          <h2>字段核对视图</h2>
-          <span class="badge">eFlow vs 申请材料</span>
+          <h2>路线 B：填写规范逐项预审</h2>
+          <span class="badge">申请材料 vs 填写规范 vs 检查结论</span>
         </div>
         <div class="panel-body stack">
-          <p class="muted">这一页用于演示确定性规则如何判断“通过/失败/需确认”。字段行来自区块规则检查报告。</p>
+          <p class="muted">适用于没有 Template Plus 或关键检查项明确的材料。系统逐项展示文档提取内容、参考值/规范、结论、证据和建议动作。</p>
           <div id="fieldGrid" class="field-grid"></div>
         </div>
       </div>
@@ -452,8 +497,8 @@ FRONTEND_HTML = r"""
     <section id="diff" class="screen">
       <div class="panel">
         <div class="panel-title">
-          <h2>模板 Plus 差异视图</h2>
-          <span class="badge">baseline vs submitted</span>
+          <h2>路线 A：模板 Plus 差异预审</h2>
+          <span class="badge">申请书 vs Template Plus 基准</span>
         </div>
         <div class="panel-body">
           <div class="diff-grid">
@@ -474,21 +519,51 @@ FRONTEND_HTML = r"""
       </div>
     </section>
 
-    <section id="config" class="screen">
+    <section id="config" class="screen active">
       <div class="panel">
-        <div class="panel-title">
-          <h2>配置中心原型</h2>
+          <div class="panel-title">
+          <h2>配置中心</h2>
           <div class="top-actions">
             <select id="templateSelect" onchange="renderConfig()"></select>
             <button type="button" onclick="savePrototypeConfig()">保存当前配置</button>
           </div>
         </div>
         <div class="panel-body stack">
-          <p class="muted">这里展示未来业务人员可配置的模板区块、eFlow 路径、检查类型和是否需要 AI。当前版本保存为前端原型态，不写入数据库。</p>
+          <div class="grid-3">
+            <div class="route-card">
+              <strong>场景树</strong>
+              <span class="muted">国家 / 银行 / 渠道 / 流程活动 / 活动细类</span>
+              <span class="badge">Multi-country / Corporate Online Banking</span>
+            </div>
+            <div class="route-card">
+              <strong>模板与知识资产</strong>
+              <span class="muted">主申请表、授权材料、身份证明材料及其知识模式。</span>
+              <span><span class="badge">模板 Plus</span> <span class="badge">填写规范</span></span>
+            </div>
+            <div class="route-card">
+              <strong>默认预审路线</strong>
+              <span class="muted">有 Template Plus 走路线 A；无 Template Plus 走路线 B；最终进入统一报告。</span>
+              <span><span class="badge low">路线 A</span> <span class="badge medium">路线 B</span></span>
+            </div>
+          </div>
+          <p class="muted">这里展示未来业务 COE 可配置的模板区块、eFlow 路径、检查类型和是否需要 AI。当前版本保存为前端原型态，不写入数据库。</p>
           <div class="config-row header">
             <div>区块名称</div><div>业务含义/填报说明</div><div>eFlow 路径</div><div>检查类型</div><div>AI 复核</div>
           </div>
           <div id="configRows"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="compare" class="screen">
+      <div class="panel">
+        <div class="panel-title">
+          <h2>多路径对比</h2>
+          <span class="badge">POC 方案比较</span>
+        </div>
+        <div class="panel-body stack">
+          <p class="muted">同一材料包同时运行路线 A 和路线 B，对比发现问题、解释方式、模型调用和配置成本，方便 Demo 阶段讨论方案取舍。</p>
+          <div id="compareRows" class="grid-3"></div>
         </div>
       </div>
     </section>
@@ -560,7 +635,7 @@ Declaration: Standard corporate online banking application terms remain unchange
       suite: null,
       packages: new Map(),
       reports: [],
-      selectedPackageId: "PKG-DEMO-001",
+      selectedPackageId: "PKG-CASE-001-PASS",
       selectedDocId: null,
       selectedRiskId: null,
       templates: null,
@@ -732,12 +807,30 @@ Declaration: Standard corporate online banking application terms remain unchange
 
     function renderAll() {
       renderOverview();
+      renderPrepSummary();
       renderMaterials();
       renderDocument();
       renderRisks();
       renderFields();
       renderDiff();
       renderConfig();
+      renderMatch();
+      renderCompare();
+    }
+
+    function renderPrepSummary() {
+      const pkg = currentPackage();
+      if (!pkg) return;
+      const docs = [...pkg.submitted_documents, ...pkg.identity_documents];
+      const ready = docs.filter(item => item.text || item.preview_text || item.preview_url).length;
+      const routeA = pkg.expected_template_set?.length ? "可进入" : "待确认";
+      const routeB = docs.length ? "可进入" : "待补充";
+      qs("prepSummary").innerHTML = `
+        <div class="metric"><span>申请场景</span><strong>${pkg.eflow.bank}</strong><div class="tiny">${pkg.eflow.platform}</div></div>
+        <div class="metric"><span>应准备文档</span><strong>${docs.length}</strong><div class="tiny">申请表 + 身份证明</div></div>
+        <div class="metric"><span>已上传/已挂载</span><strong>${ready}/${docs.length}</strong><div class="tiny">真实 Word/PDF/图片或上传文本</div></div>
+        <div class="metric"><span>可进入预审</span><strong>${ready === docs.length ? "是" : "否"}</strong><div class="tiny">路线 A：${routeA} / 路线 B：${routeB}</div></div>
+      `;
     }
 
     function renderMaterials() {
@@ -761,9 +854,30 @@ Declaration: Standard corporate online banking application terms remain unchange
         <div class="material-item ${doc.document_id === state.selectedDocId ? "active" : ""}" onclick="selectDoc('${doc.document_id}')">
           <strong>${doc.file_name}</strong>
           <div class="tiny">${doc.group} / ${doc.file_type}${doc.preview_url ? " / 真实文件" : ""}</div>
-          <div style="margin-top:6px">${badge(doc.match_status || "matched")}</div>
+          <div style="margin-top:6px">${badge(doc.match_status || "matched")} ${doc.text || doc.preview_text ? badge("已解析") : badge("待解析")}</div>
         </div>
       `).join("");
+    }
+
+    function renderMatch() {
+      const pkg = currentPackage();
+      if (!pkg) return;
+      const docs = [...pkg.submitted_documents, ...pkg.identity_documents];
+      qs("matchRows").innerHTML = docs.map(doc => {
+        const hasPlus = pkg.expected_template_set?.length > 0 && doc.file_type !== "jpg" && doc.file_type !== "png";
+        const route = hasPlus ? "路线 A：模板 Plus 差异预审" : "路线 B：填写规范逐项预审";
+        const explanation = hasPlus
+          ? "该申请表已匹配模板版本，系统将以“申请书 vs Template Plus 基准”为核心检查差异。"
+          : "该材料更适合按已配置的填写规范、证件或附件规则逐项检查。";
+        return `<tr>
+          <td><strong>${doc.file_name}</strong><div class="tiny">${doc.file_type}${doc.preview_url ? " / 原文件可打开" : ""}</div></td>
+          <td>${doc.matched_template_version_id || "证件/附件规则"}</td>
+          <td>${badge(doc.match_status || "suspected")}<div class="tiny">置信度：${Math.round((doc.match_confidence || 0) * 100)}%</div></td>
+          <td>${doc.text || doc.preview_text ? badge("文本已解析") : badge("待解析")}</td>
+          <td>${route}</td>
+          <td class="muted">${explanation}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="6" class="muted">暂无材料。</td></tr>`;
     }
 
     function selectDoc(docId) {
@@ -922,6 +1036,48 @@ Declaration: Standard corporate online banking application terms remain unchange
           <div class="tiny">类型：${item.details?.diff_type || "-"}</div>
         </article>
       `).join("") || `<p class="muted">没有发现模板差异。</p>`;
+    }
+
+    function renderCompare() {
+      const reports = state.reports || [];
+      const byStrategy = new Map(reports.map(report => [report.strategy, report]));
+      const routeA = byStrategy.get("template_plus_diff");
+      const routeB = byStrategy.get("block_rule_check");
+      const agent = byStrategy.get("full_agent_review");
+      const cards = [
+        {
+          title: "路线 A：模板 Plus",
+          mode: "看最终申请书相对标准预填模板变了什么",
+          report: routeA,
+          cost: "配置成本：中；需要维护模板基准和差异分类"
+        },
+        {
+          title: "路线 B：填写规范",
+          mode: "看文档内容是否逐项符合 eFlow、证件和规则",
+          report: routeB,
+          cost: "配置成本：高；需要维护区块、字段和规则"
+        },
+        {
+          title: "全文 Agent 兜底",
+          mode: "在规则和模板之外提示非结构化风险",
+          report: agent,
+          cost: "配置成本：低；但需要约束输出和人工确认"
+        }
+      ];
+      qs("compareRows").innerHTML = cards.map(card => {
+        const report = card.report;
+        const issueCount = report?.metrics?.detected_issues_count ?? "-";
+        const llmCalls = report?.metrics?.llm_calls ?? "-";
+        const manual = report?.results?.filter(item => item.manual_confirm_required).length ?? "-";
+        return `<div class="route-card">
+          <strong>${card.title}</strong>
+          <span class="muted">${card.mode}</span>
+          <div>${badge(report ? "已运行" : "未运行")}</div>
+          <div class="tiny">发现问题：${issueCount} / 人工确认：${manual} / 模型调用：${llmCalls}</div>
+          <div class="tiny">${card.cost}</div>
+          <div class="tiny">${report?.summary || "运行当前案例后显示摘要。"}</div>
+        </div>`;
+      }).join("");
     }
 
     function renderConfig() {
