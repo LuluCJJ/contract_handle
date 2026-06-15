@@ -102,6 +102,9 @@ class SubmittedDocument(BaseModel):
     match_confidence: float
     match_status: Literal["matched", "suspected", "unmatched"]
     text: str
+    preview_text: str | None = None
+    source_path: str | None = None
+    preview_url: str | None = None
 
 
 class Evidence(BaseModel):

@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import quote
 
 from backend.app.schemas import (
     EFlow,
@@ -12,6 +14,11 @@ from backend.app.schemas import (
     TemplatePlus,
     TemplateVersion,
 )
+from backend.app.services.document_parser import DocumentParser
+
+
+LEGACY_TEST_DATA_ROOT = Path(r"D:\AI\project\contract_handle\test_data")
+parser = DocumentParser()
 
 
 @dataclass(frozen=True)
@@ -350,6 +357,20 @@ class DemoStore:
                 submitted_overrides={"User Count": "2"},
             ),
             self._case(
+                package_id="PKG-CASE-014-PDF-PASS",
+                source_case="case_014_boc_domestic_pass",
+                title="[正例] BOC 国内：PDF 申请表真实预览",
+                expected_focus="PDF 材料预览与基础字段一致",
+                expected_risk="low",
+                user_name="Liu Yang",
+                doc_no="P-LIU-001",
+                doc_type="Passport",
+                account="454676800100123456",
+                permissions=["payment", "query"],
+                media=["Token"],
+                single_limit=500000,
+            ),
+            self._case(
                 package_id="PKG-CASE-021-HIGH-LIMIT",
                 source_case="case_021_ccb_high_limit",
                 title="[风险] CCB 建行：珠宝贸易高限额",
@@ -457,6 +478,12 @@ class DemoStore:
         }
         submitted.update(submitted_overrides or {})
         submitted_text = "\n".join(f"{key}: {value}" for key, value in submitted.items())
+        source_document = self._find_source_document(source_case)
+        preview_text = parser.extract_text(source_document) if source_document else submitted_text
+        file_name = source_document.name if source_document else f"{source_case}.txt"
+        file_type = source_document.suffix.lstrip(".").lower() if source_document else "txt"
+        preview_url = self._preview_url(source_document) if source_document else None
+        identity_document = self._find_identity_document(source_case)
         package = MaterialPackage(
             package_id=package_id,
             scenario_id=scenario_id,
@@ -465,14 +492,18 @@ class DemoStore:
                 SubmittedDocument(
                     document_id=f"DOC-{package_id}",
                     package_id=package_id,
-                    file_name=f"{source_case}.txt",
-                    file_type="txt",
+                    file_name=file_name,
+                    file_type=file_type,
                     matched_template_version_id="TPLV-CORP-ONLINE-BANKING-V1",
                     match_confidence=0.95,
                     match_status="matched",
                     text=submitted_text,
+                    preview_text=preview_text,
+                    source_path=str(source_document) if source_document else None,
+                    preview_url=preview_url,
                 )
             ],
+            identity_documents=self._identity_documents(package_id, identity_document),
             expected_template_set=["TPLV-CORP-ONLINE-BANKING-V1"],
         )
         case = DemoCase(
@@ -484,6 +515,54 @@ class DemoStore:
             demo_story=f"源自旧方案测试数据 {source_case}，用于验证新方案中的 {expected_focus}。",
         )
         return package, case
+
+    def _find_source_document(self, source_case: str) -> Path | None:
+        case_dir = LEGACY_TEST_DATA_ROOT / source_case
+        if not case_dir.exists():
+            return None
+        for pattern in ("bank_app.pdf", "bank_app.docx", "bank_app*.pdf", "bank_app*.docx", "*.xlsx", "*.xlsm"):
+            matches = sorted(case_dir.glob(pattern))
+            if matches:
+                return matches[0]
+        return None
+
+    def _find_identity_document(self, source_case: str) -> Path | None:
+        case_dir = LEGACY_TEST_DATA_ROOT / source_case
+        if not case_dir.exists():
+            return None
+        for pattern in ("id_document.jpg", "id_document*.jpg", "*.png", "*.jpeg"):
+            matches = sorted(case_dir.glob(pattern))
+            if matches:
+                return matches[0]
+        return None
+
+    def _identity_documents(self, package_id: str, path: Path | None) -> list[SubmittedDocument]:
+        if path is None:
+            return []
+        return [
+            SubmittedDocument(
+                document_id=f"ID-{package_id}",
+                package_id=package_id,
+                file_name=path.name,
+                file_type=path.suffix.lstrip(".").lower(),
+                matched_template_version_id="TPLV-CORP-ONLINE-BANKING-V1",
+                match_confidence=0.5,
+                match_status="suspected",
+                text=parser.extract_text(path),
+                preview_text=parser.extract_text(path),
+                source_path=str(path),
+                preview_url=self._preview_url(path),
+            )
+        ]
+
+    def _preview_url(self, path: Path | None) -> str | None:
+        if path is None:
+            return None
+        try:
+            relative_path = path.relative_to(LEGACY_TEST_DATA_ROOT).as_posix()
+        except ValueError:
+            return None
+        return f"/case-files/{quote(relative_path)}"
 
 
 store = DemoStore()

@@ -2,9 +2,10 @@ from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.app.core.enums import StrategyName
-from backend.app.data_store import store
+from backend.app.data_store import LEGACY_TEST_DATA_ROOT, store
 from backend.app.frontend import FRONTEND_HTML
 from backend.app.schemas import (
     ComparisonResponse,
@@ -28,6 +29,9 @@ DEFAULT_TEMPLATE_VERSION_ID = "TPLV-CORP-ONLINE-BANKING-V1"
 
 app = FastAPI(title="Bank Document Preaudit POC", version="0.2.0")
 runner = StrategyRunnerService()
+
+if LEGACY_TEST_DATA_ROOT.exists():
+    app.mount("/case-files", StaticFiles(directory=str(LEGACY_TEST_DATA_ROOT)), name="case-files")
 
 
 @app.get("/", response_class=HTMLResponse)

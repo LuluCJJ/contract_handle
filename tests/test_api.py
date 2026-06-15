@@ -10,8 +10,29 @@ def test_demo_cases_are_listed():
     response = client.get("/api/demo-cases")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) >= 8
+    assert len(data) >= 10
     assert any(item["package_id"] == "PKG-DEMO-001" for item in data)
+
+
+def test_legacy_case_uses_real_document_assets():
+    response = client.get("/api/packages/PKG-CASE-001-PASS")
+    assert response.status_code == 200
+    data = response.json()
+    document = data["submitted_documents"][0]
+    assert document["file_name"] == "bank_app.docx"
+    assert document["file_type"] == "docx"
+    assert document["preview_url"].endswith("/case_001_pass/bank_app.docx")
+    assert document["preview_text"]
+    assert data["identity_documents"][0]["file_type"] == "jpg"
+
+
+def test_pdf_case_is_in_demo_matrix():
+    response = client.get("/api/packages/PKG-CASE-014-PDF-PASS")
+    assert response.status_code == 200
+    document = response.json()["submitted_documents"][0]
+    assert document["file_name"] == "bank_app.pdf"
+    assert document["file_type"] == "pdf"
+    assert document["preview_url"].endswith("/case_014_boc_domestic_pass/bank_app.pdf")
 
 
 def test_run_preaudit_with_mock_llm():

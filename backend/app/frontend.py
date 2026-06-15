@@ -190,6 +190,27 @@ FRONTEND_HTML = r"""
       border: 1px solid #d7dee9;
       box-shadow: 0 12px 24px rgba(15, 23, 42, .08);
     }
+    .native-preview {
+      max-width: 820px;
+      margin: 0 auto 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .native-preview iframe {
+      width: 100%;
+      height: 520px;
+      border: 0;
+      display: block;
+    }
+    .native-preview img {
+      display: block;
+      max-width: 100%;
+      max-height: 520px;
+      margin: 0 auto;
+      object-fit: contain;
+    }
     .doc-title {
       margin-bottom: 22px;
       padding-bottom: 12px;
@@ -392,7 +413,10 @@ FRONTEND_HTML = r"""
           <div class="panel-body">
             <div class="doc-toolbar">
               <p class="muted" id="docHint">点击右侧风险项，可定位到对应证据行。</p>
-              <button class="neutral" type="button" onclick="clearFocus()">清除定位</button>
+              <div class="top-actions">
+                <a id="openSourceLink" class="badge" href="#" target="_blank" rel="noreferrer">打开原文件</a>
+                <button class="neutral" type="button" onclick="clearFocus()">清除定位</button>
+              </div>
             </div>
             <div class="doc-preview">
               <div class="doc-page" id="docPage"></div>
@@ -736,7 +760,7 @@ Declaration: Standard corporate online banking application terms remain unchange
       qs("materialList").innerHTML = docs.map(doc => `
         <div class="material-item ${doc.document_id === state.selectedDocId ? "active" : ""}" onclick="selectDoc('${doc.document_id}')">
           <strong>${doc.file_name}</strong>
-          <div class="tiny">${doc.group} / ${doc.file_type}</div>
+          <div class="tiny">${doc.group} / ${doc.file_type}${doc.preview_url ? " / 真实文件" : ""}</div>
           <div style="margin-top:6px">${badge(doc.match_status || "matched")}</div>
         </div>
       `).join("");
@@ -788,9 +812,20 @@ Declaration: Standard corporate online banking application terms remain unchange
       if (!doc) return;
       qs("docName").textContent = doc.file_name;
       qs("docMatchStatus").innerHTML = labels[doc.match_status] || doc.match_status || "matched";
+      const sourceLink = qs("openSourceLink");
+      if (doc.preview_url) {
+        sourceLink.href = doc.preview_url;
+        sourceLink.classList.remove("hidden");
+      } else {
+        sourceLink.href = "#";
+        sourceLink.classList.add("hidden");
+      }
       const marks = evidenceTexts();
-      const lines = String(doc.text || "暂无正文").split(/\r?\n/);
+      const previewText = doc.preview_text || doc.text || "暂无正文";
+      const lines = String(previewText).split(/\r?\n/);
+      const nativePreview = nativePreviewHtml(doc);
       qs("docPage").innerHTML = `
+        ${nativePreview}
         <div class="doc-title">${doc.file_name}</div>
         ${lines.map((line, index) => {
           const parsed = parseLine(line);
@@ -802,6 +837,21 @@ Declaration: Standard corporate online banking application terms remain unchange
           </div>`;
         }).join("")}
       `;
+    }
+
+    function nativePreviewHtml(doc) {
+      if (!doc.preview_url) return "";
+      const type = String(doc.file_type || "").toLowerCase();
+      if (type === "pdf") {
+        return `<div class="native-preview"><iframe src="${escapeAttr(doc.preview_url)}" title="${escapeAttr(doc.file_name)}"></iframe></div>`;
+      }
+      if (["jpg", "jpeg", "png"].includes(type)) {
+        return `<div class="native-preview"><img src="${escapeAttr(doc.preview_url)}" alt="${escapeAttr(doc.file_name)}" /></div>`;
+      }
+      return `<div class="native-preview" style="padding:12px">
+        <strong>原始文件：</strong>${escapeHtml(doc.file_name)}
+        <div class="tiny">浏览器通常不能直接内嵌预览 Word/Excel，这里展示系统抽取文本，并保留原文件打开入口。</div>
+      </div>`;
     }
 
     function renderRisks() {
