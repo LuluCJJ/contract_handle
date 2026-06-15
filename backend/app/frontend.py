@@ -5,6 +5,8 @@ FRONTEND_HTML = r"""
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>银行文档预审 Demo 原型</title>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     :root {
       --bg: #f7f9fc;
@@ -211,6 +213,40 @@ FRONTEND_HTML = r"""
       margin: 0 auto;
       object-fit: contain;
     }
+    .office-preview {
+      max-width: 920px;
+      min-height: 620px;
+      margin: 0 auto 14px;
+      padding: 28px 34px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 10px 22px rgba(15, 23, 42, .08);
+      overflow: auto;
+      line-height: 1.65;
+    }
+    .office-preview table {
+      min-width: 0;
+      width: auto;
+      max-width: 100%;
+      border-collapse: collapse;
+    }
+    .office-preview td,
+    .office-preview th {
+      border: 1px solid #cbd5e1;
+      padding: 6px 8px;
+      font-size: 13px;
+    }
+    .office-preview-message {
+      max-width: 820px;
+      margin: 0 auto 14px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 13px;
+    }
     .doc-title {
       margin-bottom: 22px;
       padding-bottom: 12px;
@@ -348,6 +384,11 @@ FRONTEND_HTML = r"""
       <p>案例状态、文档预览、证据高亮、字段核对、模板差异和规则配置</p>
     </div>
     <div class="top-actions">
+      <select id="routeMode" aria-label="预审方案" onchange="switchRouteMode()">
+        <option value="A">方案 A：有模板 Plus</option>
+        <option value="B">方案 B：无模板 Plus</option>
+        <option value="compare">A/B 对比</option>
+      </select>
       <select id="modelMode" aria-label="模型模式">
         <option value="mock">Mock 模型，稳定演示</option>
         <option value="real">真实 API，调用 Kimi/公司接口</option>
@@ -542,8 +583,8 @@ FRONTEND_HTML = r"""
             </div>
             <div class="route-card">
               <strong>默认预审路线</strong>
-              <span class="muted">有 Template Plus 走路线 A；无 Template Plus 走路线 B；最终进入统一报告。</span>
-              <span><span class="badge low">路线 A</span> <span class="badge medium">路线 B</span></span>
+              <span class="muted">右上角可一键切换当前 Demo 按方案 A、方案 B 或 A/B 对比运行。</span>
+              <span id="routeModeBadge"><span class="badge low">方案 A：有模板 Plus</span></span>
             </div>
           </div>
           <p class="muted">这里展示未来业务 COE 可配置的模板区块、eFlow 路径、检查类型和是否需要 AI。当前版本保存为前端原型态，不写入数据库。</p>
@@ -681,6 +722,26 @@ Declaration: Standard corporate online banking application terms remain unchange
       return qs("modelMode").value !== "real";
     }
 
+    function routeMode() {
+      return qs("routeMode").value;
+    }
+
+    function routeModeLabel() {
+      const mode = routeMode();
+      if (mode === "A") return "方案 A：有模板 Plus";
+      if (mode === "B") return "方案 B：无模板 Plus";
+      return "A/B 对比";
+    }
+
+    function switchRouteMode() {
+      renderAll();
+      const mode = routeMode();
+      if (mode === "A") showScreen("diff");
+      else if (mode === "B") showScreen("fields");
+      else showScreen("compare");
+      toast(`已切换为${routeModeLabel()}`);
+    }
+
     async function api(url, options = {}) {
       const res = await fetch(url, options);
       const data = await res.json();
@@ -725,11 +786,17 @@ Declaration: Standard corporate online banking application terms remain unchange
     }
 
     async function runCurrentComparison(showMessage = true) {
+      const mode = routeMode();
+      const strategies = mode === "A"
+        ? ["template_plus_diff"]
+        : mode === "B"
+          ? ["block_rule_check"]
+          : ["block_rule_check", "template_plus_diff", "full_agent_review"];
       const data = await api(`/api/packages/${state.selectedPackageId}/run-comparison`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          strategies: ["block_rule_check", "template_plus_diff", "full_agent_review"],
+          strategies,
           options: { use_mock_llm: useMock() }
         })
       });
@@ -864,11 +931,13 @@ Declaration: Standard corporate online banking application terms remain unchange
       if (!pkg) return;
       const docs = [...pkg.submitted_documents, ...pkg.identity_documents];
       qs("matchRows").innerHTML = docs.map(doc => {
-        const hasPlus = pkg.expected_template_set?.length > 0 && doc.file_type !== "jpg" && doc.file_type !== "png";
+        const mode = routeMode();
+        const canUsePlus = pkg.expected_template_set?.length > 0 && !["jpg", "jpeg", "png"].includes(doc.file_type);
+        const hasPlus = mode === "A" ? canUsePlus : mode === "B" ? false : canUsePlus;
         const route = hasPlus ? "路线 A：模板 Plus 差异预审" : "路线 B：填写规范逐项预审";
         const explanation = hasPlus
-          ? "该申请表已匹配模板版本，系统将以“申请书 vs Template Plus 基准”为核心检查差异。"
-          : "该材料更适合按已配置的填写规范、证件或附件规则逐项检查。";
+          ? "当前选择方案 A。该申请表已匹配模板版本，系统将以“申请书 vs Template Plus 基准”为核心检查差异。"
+          : "当前选择方案 B 或该材料不适用 Template Plus。系统将按已配置的填写规范、证件或附件规则逐项检查。";
         return `<tr>
           <td><strong>${doc.file_name}</strong><div class="tiny">${doc.file_type}${doc.preview_url ? " / 原文件可打开" : ""}</div></td>
           <td>${doc.matched_template_version_id || "证件/附件规则"}</td>
@@ -951,6 +1020,7 @@ Declaration: Standard corporate online banking application terms remain unchange
           </div>`;
         }).join("")}
       `;
+      renderRichOfficePreview(doc);
     }
 
     function nativePreviewHtml(doc) {
@@ -962,10 +1032,47 @@ Declaration: Standard corporate online banking application terms remain unchange
       if (["jpg", "jpeg", "png"].includes(type)) {
         return `<div class="native-preview"><img src="${escapeAttr(doc.preview_url)}" alt="${escapeAttr(doc.file_name)}" /></div>`;
       }
+      if (["docx", "xlsx", "xlsm", "xls"].includes(type)) {
+        return `<div id="richOfficePreview" class="office-preview-message">
+          正在渲染 ${escapeHtml(doc.file_name)}。如果浏览器无法加载预览插件，将显示系统抽取文本。
+        </div>`;
+      }
       return `<div class="native-preview" style="padding:12px">
         <strong>原始文件：</strong>${escapeHtml(doc.file_name)}
-        <div class="tiny">浏览器通常不能直接内嵌预览 Word/Excel，这里展示系统抽取文本，并保留原文件打开入口。</div>
+        <div class="tiny">该类型暂不支持内嵌预览，这里展示系统抽取文本，并保留原文件打开入口。</div>
       </div>`;
+    }
+
+    async function renderRichOfficePreview(doc) {
+      const holder = document.getElementById("richOfficePreview");
+      if (!holder || !doc.preview_url) return;
+      const type = String(doc.file_type || "").toLowerCase();
+      try {
+        const response = await fetch(doc.preview_url);
+        const buffer = await response.arrayBuffer();
+        if (type === "docx") {
+          if (!window.mammoth) {
+            holder.textContent = "Word 预览插件未加载，已显示系统抽取文本。";
+            return;
+          }
+          const result = await window.mammoth.convertToHtml({ arrayBuffer: buffer });
+          holder.className = "office-preview";
+          holder.innerHTML = result.value || "<p>Word 文件未解析出可展示内容。</p>";
+          return;
+        }
+        if (["xlsx", "xlsm", "xls"].includes(type)) {
+          if (!window.XLSX) {
+            holder.textContent = "Excel 预览插件未加载，已显示系统抽取文本。";
+            return;
+          }
+          const workbook = window.XLSX.read(buffer, { type: "array" });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          holder.className = "office-preview";
+          holder.innerHTML = window.XLSX.utils.sheet_to_html(firstSheet);
+        }
+      } catch (error) {
+        holder.textContent = `原文件预览失败，已保留抽取文本。${error.message || ""}`;
+      }
     }
 
     function renderRisks() {
@@ -1082,6 +1189,15 @@ Declaration: Standard corporate online banking application terms remain unchange
 
     function renderConfig() {
       if (!state.templates) return;
+      const routeBadge = qs("routeModeBadge");
+      if (routeBadge) {
+        const mode = routeMode();
+        routeBadge.innerHTML = mode === "A"
+          ? `<span class="badge low">当前：方案 A，有模板 Plus</span>`
+          : mode === "B"
+            ? `<span class="badge medium">当前：方案 B，无模板 Plus</span>`
+            : `<span class="badge">当前：A/B 对比</span>`;
+      }
       const templateVersionId = qs("templateSelect").value || state.templates.template_versions?.[0]?.template_version_id;
       const blocks = state.templates.template_blocks?.[templateVersionId] || [];
       qs("configRows").innerHTML = blocks.map((block, index) => {
